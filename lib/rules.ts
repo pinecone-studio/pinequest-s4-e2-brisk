@@ -12,23 +12,12 @@ export interface PersonResult {
   signals: SmokingSignals;
 }
 
-export interface LitterResult {
-  box: [number, number, number, number];
-  label: string;
-  confidence: number;
-}
-
 export interface CompositeDetections {
   smokingResults: PersonResult[];
-  litterResults: LitterResult[];
 }
 
 const HANDHELD_LABELS = new Set([
   "cell phone", "bottle", "cup", "remote", "book", "scissors",
-]);
-
-const LITTER_LABELS = new Set([
-  "bottle", "cup", "book", "cell phone",
 ]);
 
 // COCO objects that can indicate mouth proximity (no smoking model — avoids circular logic)
@@ -37,7 +26,6 @@ const MOUTH_OBJECT_LABELS = new Set([
 ]);
 
 const SMOKING_COMPOSITE_THRESHOLD = 0.45;
-const LITTER_CONFIDENCE_THRESHOLD = 0.6;
 
 function intersectionArea(
   a: [number, number, number, number],
@@ -54,15 +42,6 @@ function boxArea(b: [number, number, number, number]): number {
   return Math.max(0, b[2] - b[0]) * Math.max(0, b[3] - b[1]);
 }
 
-function iou(
-  a: [number, number, number, number],
-  b: [number, number, number, number],
-): number {
-  const inter = intersectionArea(a, b);
-  const union = boxArea(a) + boxArea(b) - inter;
-  return union > 0 ? inter / union : 0;
-}
-
 // Fraction of obj's area that falls inside region
 function coverageRatio(
   region: [number, number, number, number],
@@ -77,7 +56,6 @@ export function computeCompositeDetections(
   cocoDets: Detection[],
 ): CompositeDetections {
   const persons = cocoDets.filter((d) => d.label === "person");
-  const personBoxes = persons.map((p) => p.box);
 
   // ── smoking results ────────────────────────────────────────────────────────
   const smokingResults: PersonResult[] = [];
@@ -154,30 +132,5 @@ export function computeCompositeDetections(
     }
   }
 
-  // ── litter results ─────────────────────────────────────────────────────────
-  const litterResults: LitterResult[] = [];
-
-  for (const det of cocoDets) {
-    if (!LITTER_LABELS.has(det.label)) continue;
-
-    // Must meet confidence threshold
-    if (det.confidence < LITTER_CONFIDENCE_THRESHOLD) continue;
-
-    // Must be a small object — no full-room boxes
-    const w = det.box[2] - det.box[0];
-    const h = det.box[3] - det.box[1];
-    if (w >= 0.4 || h >= 0.4) continue;
-
-    // Center must be in the bottom half of the frame
-    const cy = (det.box[1] + det.box[3]) / 2;
-    if (cy < 0.5) continue;
-
-    // Must not overlap any person (IoU < 0.1)
-    const overlapsPersons = personBoxes.some((pb) => iou(pb, det.box) >= 0.1);
-    if (overlapsPersons) continue;
-
-    litterResults.push({ box: det.box, label: det.label, confidence: det.confidence });
-  }
-
-  return { smokingResults, litterResults };
+  return { smokingResults };
 }

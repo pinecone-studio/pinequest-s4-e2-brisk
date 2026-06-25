@@ -7,7 +7,7 @@ export const LITTER_MODEL_PATH = `/models/litter.onnx`;
 export const COCO_MODEL_PATH = "/models/coco.onnx";
 
 export const SMOKING_THRESHOLD = 0.5;
-export const LITTER_THRESHOLD = 0.8;
+export const LITTER_THRESHOLD = 0.5;
 export const ALERT_THRESHOLD = 0.7;
 export const COCO_THRESHOLD = 0.35;
 

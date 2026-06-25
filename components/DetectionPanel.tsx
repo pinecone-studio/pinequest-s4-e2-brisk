@@ -1,7 +1,7 @@
 "use client";
 
 import { Detection } from "@/lib/yoloDecode";
-import { ALERT_THRESHOLD } from "@/lib/modelConfig";
+import { ALERT_THRESHOLD, LITTER_THRESHOLD, SMOKING_THRESHOLD } from "@/lib/modelConfig";
 
 const SMOKING_COLOR = "#ef4444";
 const LITTER_COLOR = "#f97316";
@@ -162,11 +162,11 @@ export default function DetectionPanel({ detections }: Props) {
         <div style={{ display: "flex", gap: 16 }}>
           <span style={{ fontSize: 11, color: "var(--muted)", display: "flex", alignItems: "center", gap: 5 }}>
             <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: SMOKING_COLOR }} />
-            Smoking ≥ 50%
+            Smoking ≥ {Math.round(SMOKING_THRESHOLD * 100)}%
           </span>
           <span style={{ fontSize: 11, color: "var(--muted)", display: "flex", alignItems: "center", gap: 5 }}>
             <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: LITTER_COLOR }} />
-            Litter ≥ 60%
+            Litter ≥ {Math.round(LITTER_THRESHOLD * 100)}%
           </span>
         </div>
       </div>

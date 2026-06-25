@@ -7,7 +7,8 @@ export interface Detection {
 export function normalizeLabel(raw: string): string {
   const lower = raw.toLowerCase();
   if (lower.includes("smoking")) return "Smoking";
-  if (lower.includes("litter")) return "Litter";
+  if (lower.includes("litter") || lower.includes("plastic") || lower.includes("trash"))
+    return "Litter";
   return raw;
 }
 

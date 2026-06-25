@@ -1,0 +1,12 @@
+names:
+- plastic-bottles
+nc: 1
+roboflow:
+  license: CC BY 4.0
+  project: trash-plastic-bottle-detection
+  url: https://universe.roboflow.com/ros/trash-plastic-bottle-detection/dataset/2
+  version: 2
+  workspace: ros
+test: test/images
+train: train/images
+val: valid/images
