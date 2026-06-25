@@ -132,14 +132,16 @@ export function computeCompositeDetections(
     }
     if (isNearMouth) score += 0.4;
 
-    // Signal 3: smoking model detection inside person box with conf > 0.5
+    // Signal 3: smoking model detection inside person box. This is the primary
+    // signal; COCO mouth/hand cues are only supporting context.
     for (const det of smokingDets) {
+      if (det.label !== "Smoking") continue;
       if (det.confidence <= 0.5) continue;
       if (coverageRatio(person.box, det.box) > 0.3) {
         smokingModelScore = Math.max(smokingModelScore, det.confidence);
       }
     }
-    if (smokingModelScore > 0) score += smokingModelScore * 0.3;
+    if (smokingModelScore > 0) score += smokingModelScore;
 
     score = Math.min(1, Math.max(0, score));
 

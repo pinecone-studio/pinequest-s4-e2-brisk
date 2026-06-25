@@ -10,8 +10,8 @@ import {
 import { decodeYolo, Detection } from "./yoloDecode";
 import { computeCompositeDetections } from "./rules";
 
-// Raw class names as they appear in the ONNX export (normalized in yoloDecode)
-const SMOKING_CLASS_NAMES = ["smoking - v3 2024-06-12 1-07pm"];
+// Smoking model output is [cx, cy, w, h, background, smoking].
+const SMOKING_CLASS_NAMES = ["-", "Smoking"];
 
 let ort: typeof OrtType | null = null;
 let smokingSession: OrtType.InferenceSession | null = null;
@@ -77,7 +77,7 @@ export async function runInference(video: HTMLVideoElement): Promise<Detection[]
       SMOKING_CLASS_NAMES,
       SMOKING_THRESHOLD,
       smokingOut.dims[2] as number,
-    );
+    ).filter((det) => det.label === "Smoking");
     const cocoDets = decodeYolo(
       cocoOut.data as Float32Array,
       COCO_CLASS_NAMES,
