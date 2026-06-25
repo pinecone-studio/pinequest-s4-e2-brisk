@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import path from "path";
 import { spawn, type ChildProcessWithoutNullStreams } from "child_process";
 import { loadCameraStreamSource } from "../../cameras/serverCameraConfig";
+import { markCameraOffline, markCameraOnline } from "../../cameras/cameraHealth";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -68,14 +69,17 @@ export async function GET(request: Request, { params }: StreamRouteContext) {
 
   if (camera.config_error) {
     console.warn(`[stream] cameraId=${camera.id} host=${host} ${camera.config_error}`);
+    markCameraOffline(camera.id);
     return NextResponse.json({ error: camera.config_error }, { status: 503 });
   }
 
   if (!camera.rtsp_url) {
+    markCameraOffline(camera.id);
     return NextResponse.json({ error: "Camera stream URL is not configured" }, { status: 503 });
   }
 
   if (isFailureCached(camera.id)) {
+    markCameraOffline(camera.id);
     return unavailableResponse();
   }
 
@@ -100,8 +104,11 @@ export async function GET(request: Request, { params }: StreamRouteContext) {
   });
 
   if (!openedStream) {
+    markCameraOffline(camera.id);
     return unavailableResponse();
   }
+
+  markCameraOnline(camera.id);
 
   let cleanupStream = () => {
     stopDecoder(openedStream.decoder);

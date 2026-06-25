@@ -1,6 +1,7 @@
 import { promises as fs } from "fs";
 import path from "path";
 import type { CameraView } from "../../cameras/lib/cameraTypes";
+import { getCameraHealth } from "./cameraHealth";
 
 interface RawCamera {
   id?: string;
@@ -119,6 +120,7 @@ function normalizeCamera(
   const floor = camera.floor ?? 0;
   const zone = camera.zone ?? camera.description ?? "unknown";
   const rtspUrl = resolveCameraStreamUrl(camera, config);
+  const health = getCameraHealth(id);
 
   return {
     id,
@@ -131,7 +133,8 @@ function normalizeCamera(
     stream_url: buildCameraStreamUrl(id),
     enabled: camera.enabled ?? true,
     online: false,
-    status: camera.enabled === false ? "disabled" : "unknown",
+    status: camera.enabled === false ? "disabled" : health.status,
+    lastSuccessfulConnection: health.lastSuccessfulConnection,
   };
 }
 
