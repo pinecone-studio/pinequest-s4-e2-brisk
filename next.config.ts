@@ -1,9 +1,10 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  output: "export",
+  images: { unoptimized: true },
   webpack: (config, { isServer }) => {
     if (!isServer) {
-      // onnxruntime-web references node built-ins in some paths; ignore client-side
       config.resolve.fallback = {
         ...config.resolve.fallback,
         fs: false,
