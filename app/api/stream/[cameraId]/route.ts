@@ -59,11 +59,21 @@ export async function GET(request: Request, { params }: StreamRouteContext) {
   const { cameraId } = await params;
   const camera = await loadCameraStreamSource(cameraId);
 
-  if (!camera || camera.enabled === false || !camera.host || !camera.rtsp_url) {
+  if (!camera || camera.enabled === false || !camera.host) {
     return NextResponse.json({ error: "Camera not found" }, { status: 404 });
   }
 
   const host = camera.host;
+  console.info(`[stream] cameraId=${camera.id} host=${host} Camera mode: ${camera.connection_mode}`);
+
+  if (camera.config_error) {
+    console.warn(`[stream] cameraId=${camera.id} host=${host} ${camera.config_error}`);
+    return NextResponse.json({ error: camera.config_error }, { status: 503 });
+  }
+
+  if (!camera.rtsp_url) {
+    return NextResponse.json({ error: "Camera stream URL is not configured" }, { status: 503 });
+  }
 
   if (isFailureCached(camera.id)) {
     return unavailableResponse();

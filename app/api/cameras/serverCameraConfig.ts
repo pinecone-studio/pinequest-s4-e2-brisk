@@ -30,6 +30,8 @@ interface CameraStreamSource {
   host?: string;
   rtsp_url?: string;
   enabled: boolean;
+  connection_mode: CameraConnectionMode;
+  config_error?: string;
 }
 
 type CameraConnectionMode = "local" | "remote";
@@ -43,7 +45,9 @@ export async function loadCameraStreamSource(cameraId: string): Promise<CameraSt
   const config = await loadRawCameraConfig();
   const rawCamera = (config.cameras ?? []).find((camera) => camera.id === cameraId);
   if (!rawCamera) return undefined;
+  const connectionMode = resolveCameraConnectionMode(rawCamera, config);
   const rtspUrl = resolveCameraStreamUrl(rawCamera, config);
+  const configError = validateCameraStreamConfig(rawCamera, connectionMode);
 
   return {
     id: rawCamera.id ?? cameraId,
@@ -51,6 +55,8 @@ export async function loadCameraStreamSource(cameraId: string): Promise<CameraSt
     host: rawCamera.host ?? rawCamera.ip ?? getRtspHost(rtspUrl),
     rtsp_url: rtspUrl,
     enabled: rawCamera.enabled ?? true,
+    connection_mode: connectionMode,
+    config_error: configError,
   };
 }
 
@@ -80,11 +86,28 @@ export function resolveCameraStreamUrl(
   camera: RawCamera,
   config?: RawCameraConfig,
 ): string | undefined {
-  const connectionMode = camera.connection_mode ?? config?.connection_mode ?? "local";
-  if (connectionMode === "remote" && camera.remote_rtsp_url) {
+  const connectionMode = resolveCameraConnectionMode(camera, config);
+  if (connectionMode === "remote") {
     return camera.remote_rtsp_url;
   }
   return camera.rtsp_url ?? camera.stream_url;
+}
+
+function resolveCameraConnectionMode(
+  camera: RawCamera,
+  config?: RawCameraConfig,
+): CameraConnectionMode {
+  return camera.connection_mode ?? config?.connection_mode ?? "local";
+}
+
+function validateCameraStreamConfig(
+  camera: RawCamera,
+  connectionMode: CameraConnectionMode,
+): string | undefined {
+  if (connectionMode === "remote" && !camera.remote_rtsp_url) {
+    return `Camera ${camera.id ?? "<unknown>"} is configured for remote mode but remote_rtsp_url is missing`;
+  }
+  return undefined;
 }
 
 function normalizeCamera(
