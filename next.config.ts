@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  output: "export",
+  ...(process.env.STATIC_EXPORT === "1" ? { output: "export" as const } : {}),
   images: { unoptimized: true },
   webpack: (config, { isServer }) => {
     if (!isServer) {
