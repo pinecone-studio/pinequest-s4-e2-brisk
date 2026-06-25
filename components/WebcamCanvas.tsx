@@ -26,6 +26,7 @@ function drawBoxes(
   overlay.height = displayH;
   const ctx = overlay.getContext("2d")!;
   ctx.clearRect(0, 0, displayW, displayH);
+  console.log("[render]", dets.length);
 
   for (const det of dets) {
     const [x1, y1, x2, y2] = det.box;

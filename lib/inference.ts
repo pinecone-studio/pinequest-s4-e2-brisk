@@ -1,20 +1,21 @@
 import type * as OrtType from "onnxruntime-web";
 import {
   SMOKING_MODEL_PATH,
-  LITTER_MODEL_PATH,
+  COCO_MODEL_PATH,
   SMOKING_THRESHOLD,
-  LITTER_THRESHOLD,
+  COCO_THRESHOLD,
+  COCO_CLASS_NAMES,
   INPUT_SIZE,
 } from "./modelConfig";
 import { decodeYolo, Detection } from "./yoloDecode";
+import { computeCompositeDetections } from "./rules";
 
 // Raw class names as they appear in the ONNX export (normalized in yoloDecode)
 const SMOKING_CLASS_NAMES = ["smoking - v3 2024-06-12 1-07pm"];
-const LITTER_CLASS_NAMES = ["litter"];
 
 let ort: typeof OrtType | null = null;
 let smokingSession: OrtType.InferenceSession | null = null;
-let litterSession: OrtType.InferenceSession | null = null;
+let cocoSession: OrtType.InferenceSession | null = null;
 let isRunning = false;
 
 export async function loadModels(): Promise<void> {
@@ -26,11 +27,11 @@ export async function loadModels(): Promise<void> {
   // Single-threaded avoids needing SharedArrayBuffer COOP/COEP headers
   ort.env.wasm.numThreads = 1;
 
-  [smokingSession, litterSession] = await Promise.all([
+  [smokingSession, cocoSession] = await Promise.all([
     ort.InferenceSession.create(SMOKING_MODEL_PATH, {
       executionProviders: ["wasm"],
     }),
-    ort.InferenceSession.create(LITTER_MODEL_PATH, {
+    ort.InferenceSession.create(COCO_MODEL_PATH, {
       executionProviders: ["wasm"],
     }),
   ]);
@@ -56,7 +57,7 @@ function preprocessFrame(source: HTMLVideoElement | HTMLCanvasElement): Float32A
 }
 
 export async function runInference(video: HTMLVideoElement): Promise<Detection[]> {
-  if (!ort || !smokingSession || !litterSession) return [];
+  if (!ort || !smokingSession || !cocoSession) return [];
   if (isRunning) return [];
   isRunning = true;
 
@@ -66,10 +67,10 @@ export async function runInference(video: HTMLVideoElement): Promise<Detection[]
 
     // Run sequentially — WASM backend throws "Session already started" on concurrent runs
     const smokingResult = await smokingSession.run({ [smokingSession.inputNames[0]]: tensor });
-    const litterResult = await litterSession.run({ [litterSession.inputNames[0]]: tensor });
+    const cocoResult = await cocoSession.run({ [cocoSession.inputNames[0]]: tensor });
 
     const smokingOut = smokingResult[smokingSession.outputNames[0]];
-    const litterOut = litterResult[litterSession.outputNames[0]];
+    const cocoOut = cocoResult[cocoSession.outputNames[0]];
 
     const smokingDets = decodeYolo(
       smokingOut.data as Float32Array,
@@ -77,14 +78,37 @@ export async function runInference(video: HTMLVideoElement): Promise<Detection[]
       SMOKING_THRESHOLD,
       smokingOut.dims[2] as number,
     );
-    const litterDets = decodeYolo(
-      litterOut.data as Float32Array,
-      LITTER_CLASS_NAMES,
-      LITTER_THRESHOLD,
-      litterOut.dims[2] as number,
+    const cocoDets = decodeYolo(
+      cocoOut.data as Float32Array,
+      COCO_CLASS_NAMES,
+      COCO_THRESHOLD,
+      cocoOut.dims[2] as number,
     );
 
-    return [...smokingDets, ...litterDets];
+    const { smokingResults, litterResults } = computeCompositeDetections(
+      smokingDets,
+      cocoDets,
+    );
+
+    console.log(
+      "[composite]",
+      smokingResults.map((r) => ({ score: r.compositeScore, signals: r.signals })),
+    );
+
+    const compositeDets: Detection[] = [
+      ...smokingResults.map((r) => ({
+        label: "Smoking",
+        confidence: r.compositeScore,
+        box: r.personBox,
+      })),
+      ...litterResults.map((r) => ({
+        label: "Litter",
+        confidence: r.confidence,
+        box: r.box,
+      })),
+    ];
+
+    return compositeDets;
   } finally {
     isRunning = false;
   }
