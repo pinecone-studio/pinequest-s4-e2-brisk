@@ -1,31 +1,16 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-
-const CAMERAS = [
-  { id: "cam_01", floor: 1, zone: "Entrance" },
-  { id: "cam_02", floor: 2, zone: "Corridor" },
-  { id: "cam_03", floor: 3, zone: "Corridor" },
-  { id: "cam_04", floor: 4, zone: "Corridor" },
-  { id: "cam_05", floor: 5, zone: "Lift" },
-  { id: "cam_06", floor: 6, zone: "Corridor" },
-  { id: "cam_07", floor: 7, zone: "Corridor" },
-];
+import CameraGrid from "./components/CameraGrid";
+import { fetchCameraConfig } from "./lib/cameraApi";
+import type { CameraView } from "./lib/cameraTypes";
 
 interface Stats {
   total: number;
   smoking: number;
   garbage: number;
   cameras_online: number;
-}
-
-interface CameraStatus {
-  id: string;
-  floor: number;
-  zone: string;
-  ip: string;
-  online: boolean;
 }
 
 interface Violation {
@@ -40,82 +25,46 @@ interface Violation {
 }
 
 export default function CamerasPage() {
-  const [stats, setStats] = useState<Stats>({ total: 0, smoking: 0, garbage: 0, cameras_online: 0 });
-  const [cameraStatus, setCameraStatus] = useState<Record<string, boolean>>({});
-  const [snapshots, setSnapshots] = useState<Record<string, string>>({});
-  const [violations, setViolations] = useState<Violation[]>([]);
-  const wsRef = useRef<WebSocket | null>(null);
-
-  function refreshStats() {
-    fetch("/api/stats")
-      .then((r) => r.json())
-      .then((data: Stats) => setStats(data))
-      .catch(() => {});
-  }
+  const [cameras, setCameras] = useState<CameraView[]>([]);
+  const [cameraLoadError, setCameraLoadError] = useState<string | null>(null);
+  const [modelWarning, setModelWarning] = useState<string | null>(null);
+  const [violations] = useState<Violation[]>([]);
+  const stats = useMemo<Stats>(
+    () => ({
+      total: violations.length,
+      smoking: violations.filter((violation) => violation.type === "smoking").length,
+      garbage: violations.filter((violation) => violation.type === "garbage").length,
+      cameras_online: cameras.filter((camera) => camera.online).length,
+    }),
+    [cameras, violations],
+  );
 
   function refreshCameraStatus() {
-    fetch("/api/cameras")
-      .then((r) => r.json())
-      .then((cams: CameraStatus[]) => {
-        const map: Record<string, boolean> = {};
-        cams.forEach((c) => (map[c.id] = c.online));
-        setCameraStatus(map);
+    fetchCameraConfig()
+      .then((cams) => {
+        setCameras(cams);
+        setCameraLoadError(null);
+        const affected = cams.find((c) => c.enabled && !c.inference_enabled);
+        setModelWarning(
+          affected
+            ? `YOLO inference disabled: ${
+                affected.model_error ?? `model not loaded from ${affected.model_path}`
+              }`
+            : null,
+        );
       })
-      .catch(() => {});
-  }
-
-  function refreshSnapshots() {
-    const t = Date.now();
-    const next: Record<string, string> = {};
-    CAMERAS.forEach((c) => (next[c.id] = `/api/snapshot/${c.id}?t=${t}`));
-    setSnapshots(next);
-  }
-
-  function loadInitialViolations() {
-    fetch("/api/violations")
-      .then((r) => r.json())
-      .then((data: Violation[]) => setViolations(data))
-      .catch(() => {});
-  }
-
-  function connectWS() {
-    const proto = location.protocol === "https:" ? "wss" : "ws";
-    const ws = new WebSocket(`${proto}://${location.host}/ws`);
-    wsRef.current = ws;
-
-    ws.onmessage = (evt) => {
-      try {
-        const v: Violation = JSON.parse(evt.data);
-        setViolations((prev) => [v, ...prev].slice(0, 100));
-        setStats((prev) => ({
-          ...prev,
-          total: prev.total + 1,
-          smoking: v.type === "smoking" ? prev.smoking + 1 : prev.smoking,
-          garbage: v.type === "garbage" ? prev.garbage + 1 : prev.garbage,
-        }));
-      } catch {}
-    };
-
-    ws.onclose = () => setTimeout(connectWS, 3000);
-    ws.onerror = () => ws.close();
+      .catch((err) => {
+        setCameraLoadError(err instanceof Error ? err.message : "Failed to load cameras");
+      });
   }
 
   useEffect(() => {
-    refreshStats();
     refreshCameraStatus();
-    loadInitialViolations();
-    refreshSnapshots();
-    connectWS();
 
-    const snapshotTimer = setInterval(refreshSnapshots, 3000);
     const statusTimer = setInterval(refreshCameraStatus, 3000);
-    const statsTimer = setInterval(refreshStats, 10000);
 
     return () => {
-      clearInterval(snapshotTimer);
       clearInterval(statusTimer);
-      clearInterval(statsTimer);
-      wsRef.current?.close();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -168,28 +117,6 @@ export default function CamerasPage() {
           font-size: 12px; font-weight: 600; color: var(--muted);
           text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 12px;
         }
-        .camera-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-        .camera-tile {
-          background: var(--card); border: 1px solid var(--border);
-          border-radius: 8px; overflow: hidden; position: relative;
-        }
-        .camera-tile img {
-          width: 100%; aspect-ratio: 16/9; object-fit: cover;
-          display: block; background: #111;
-        }
-        .camera-tile .cam-label {
-          position: absolute; bottom: 0; left: 0; right: 0;
-          background: linear-gradient(transparent, rgba(0,0,0,0.8));
-          padding: 8px 8px 6px; font-size: 11px; color: #ccc;
-        }
-        .cam-id { font-weight: 700; color: #fff; }
-        .cam-offline { opacity: 0.4; }
-        .cam-badge {
-          position: absolute; top: 6px; right: 6px;
-          padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 700;
-        }
-        .cam-badge-online  { background: var(--green); color: #000; }
-        .cam-badge-offline { background: var(--red);   color: #fff; }
         .feed-panel { display: flex; flex-direction: column; }
         .feed-scroll {
           background: var(--card); border: 1px solid var(--border);
@@ -248,28 +175,32 @@ export default function CamerasPage() {
         </div>
       </div>
 
+      {modelWarning && (
+        <div
+          style={{
+            margin: "0 24px 16px",
+            padding: "10px 12px",
+            border: "1px solid rgba(234, 179, 8, 0.55)",
+            borderRadius: 8,
+            background: "rgba(234, 179, 8, 0.12)",
+            color: "var(--yellow)",
+            fontSize: 12,
+          }}
+        >
+          {modelWarning}
+        </div>
+      )}
+
       <div className="main">
-        <div>
+        <div className="min-w-0">
           <div className="section-title">Live Camera Feeds</div>
-          <div className="camera-grid">
-            {CAMERAS.map((cam) => {
-              const online = cameraStatus[cam.id] ?? false;
-              return (
-                <div key={cam.id} className={`camera-tile${!online ? " cam-offline" : ""}`}>
-                  {snapshots[cam.id] && (
-                    <img src={snapshots[cam.id]} alt={cam.id} />
-                  )}
-                  <span className={`cam-badge ${online ? "cam-badge-online" : "cam-badge-offline"}`}>
-                    {online ? "LIVE" : "OFFLINE"}
-                  </span>
-                  <div className="cam-label">
-                    <span className="cam-id">CAM {cam.id.slice(-2).toUpperCase()}</span>
-                    {" "}&bull; Floor {cam.floor} &bull; {cam.zone}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+          {cameraLoadError ? (
+            <div className="flex aspect-video items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--card)] text-xs text-[var(--red)]">
+              {cameraLoadError}
+            </div>
+          ) : (
+            <CameraGrid cameras={cameras} />
+          )}
         </div>
 
         <div className="feed-panel">
