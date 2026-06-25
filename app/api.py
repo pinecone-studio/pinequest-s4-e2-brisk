@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="GuardAI")
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
+Path("evidence").mkdir(exist_ok=True)
 app.mount("/evidence", StaticFiles(directory="evidence"), name="evidence")
 
 _ws_clients: List[WebSocket] = []

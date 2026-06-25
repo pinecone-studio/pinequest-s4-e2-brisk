@@ -10,7 +10,7 @@
   ],
   "rtsp_template": "rtsp://admin:@{ip}:554/ch01/main/av_stream",
   "sample_rate": 15,
-  "confidence_threshold": 0.75,
-  "temporal_window": 5,
+  "confidence_threshold": 0.50,
+  "temporal_window": 2,
   "cooldown_minutes": 5
 }

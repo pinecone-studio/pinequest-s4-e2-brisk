@@ -107,7 +107,7 @@ def get_frame(camera_id: str) -> Optional[bytes]:
 def get_camera_statuses() -> List[Dict]:
     cfg = _CONFIG
     result = []
-    for cam in cfg["cameras"]:
+    for cam in cfg.get("cameras", []):
         stream = _streams.get(cam["id"])
         result.append({
             "id": cam["id"],

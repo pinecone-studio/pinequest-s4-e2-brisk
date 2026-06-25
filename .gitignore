@@ -1,4 +1,3 @@
-cat > .gitignore << 'EOF'
 venv/
 __pycache__/
 *.pyc
@@ -7,4 +6,8 @@ evidence/
 data/
 logs/
 .env
-EOF
+output/
+input/
+models/
+
+runs/
