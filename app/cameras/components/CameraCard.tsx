@@ -28,10 +28,12 @@ export default function CameraCard({
   camera,
   streamState,
   onStreamSettled,
+  onOpen,
 }: {
   camera: CameraView;
   streamState: StreamLoadState;
   onStreamSettled: (state: "online" | "stream_unavailable") => void;
+  onOpen?: () => void;
 }) {
   const [imageLoaded, setImageLoaded] = useState(false);
   const streamUrl = buildCameraStreamUrl(camera);
@@ -69,12 +71,23 @@ export default function CameraCard({
   return (
     <article
       className="rounded-xl border border-neutral-800 bg-neutral-900/70 overflow-hidden"
+      role={onOpen ? "button" : undefined}
+      tabIndex={onOpen ? 0 : undefined}
+      onClick={onOpen}
+      onKeyDown={(event) => {
+        if (!onOpen) return;
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onOpen();
+        }
+      }}
       style={{
         minWidth: 0,
         overflow: "hidden",
         borderRadius: 12,
         border: "1px solid #262626",
         background: "rgba(23, 23, 23, 0.7)",
+        cursor: onOpen ? "pointer" : "default",
       }}
     >
       <div

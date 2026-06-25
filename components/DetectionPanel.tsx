@@ -8,13 +8,16 @@ const LITTER_COLOR = "#f97316";
 
 interface Props {
   detections: Detection[];
+  modelState?: "loading" | "ready" | "error";
 }
 
 function getColor(label: string): string {
   return label === "Smoking" ? SMOKING_COLOR : LITTER_COLOR;
 }
 
-export default function DetectionPanel({ detections }: Props) {
+export default function DetectionPanel({ detections, modelState = "ready" }: Props) {
+  const detectionUnavailable = modelState !== "ready";
+
   return (
     <div
       style={{
@@ -47,7 +50,20 @@ export default function DetectionPanel({ detections }: Props) {
         >
           Live Detections
         </span>
-        {detections.length > 0 && (
+        {detectionUnavailable ? (
+          <span
+            style={{
+              fontSize: 11,
+              fontWeight: 700,
+              color: modelState === "error" ? "var(--red)" : "var(--yellow)",
+              background: modelState === "error" ? "rgba(239,68,68,0.12)" : "rgba(234,179,8,0.12)",
+              padding: "2px 8px",
+              borderRadius: 4,
+            }}
+          >
+            {modelState === "error" ? "Detection unavailable" : "Model loading..."}
+          </span>
+        ) : detections.length > 0 ? (
           <span
             style={{
               fontSize: 11,
@@ -60,11 +76,22 @@ export default function DetectionPanel({ detections }: Props) {
           >
             {detections.length}
           </span>
-        )}
+        ) : null}
       </div>
 
       <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
-        {detections.length === 0 ? (
+        {detectionUnavailable ? (
+          <div
+            style={{
+              padding: "48px 24px",
+              textAlign: "center",
+              color: "var(--muted)",
+              fontSize: 13,
+            }}
+          >
+            {modelState === "error" ? "Detection unavailable" : "Model loading..."}
+          </div>
+        ) : detections.length === 0 ? (
           <div
             style={{
               padding: "48px 24px",
