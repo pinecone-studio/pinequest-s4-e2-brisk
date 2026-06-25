@@ -155,6 +155,7 @@
       "enabled": true
     }
   ],
+  "connection_mode": "local",
   "rtsp_template": "rtsp://{ip}:554/",
   "model_path": "models/smoking.pt",
   "sample_rate": 15,
