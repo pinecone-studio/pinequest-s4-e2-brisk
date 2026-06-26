@@ -15,10 +15,10 @@ concurrency:
 
 env:
   OWNER: pinecone-studio
-  REPO: pinequest-s4-e2-brisk
+  REPO: pinequest-s4-e2-aegis
   START_DATE: '2026-01-01T00:00:00Z'
   END_DATE: '2026-12-31T23:59:59Z'
-  KV_KEY: 'pinequest:pinequest-s4-e2-brisk'
+  KV_KEY: 'pinequest:pinequest-s4-e2-aegis'
 
 jobs:
   metrics:
