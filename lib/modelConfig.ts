@@ -7,7 +7,9 @@ export const LITTER_MODEL_PATH = `/models/litter.onnx`;
 export const COCO_MODEL_PATH = "/models/coco.onnx";
 
 export const SMOKING_THRESHOLD = 0.5;
-export const LITTER_THRESHOLD = 0.5;
+// Litter model (single 'plastic-bottles' class) is weak and often sits below
+// 0.5 even on clear bottles, so it gets a more forgiving bar than smoking.
+export const LITTER_THRESHOLD = 0.4;
 export const ALERT_THRESHOLD = 0.7;
 export const COCO_THRESHOLD = 0.35;
 

@@ -1,9 +1,14 @@
 "use client";
 
 import type { EvidenceEvent } from "@/lib/evidence";
-import { SMOKING_THRESHOLD } from "@/lib/modelConfig";
+import { SMOKING_THRESHOLD, LITTER_THRESHOLD } from "@/lib/modelConfig";
 
 const SMOKING_COLOR = "#ef4444";
+const LITTER_COLOR = "#f97316";
+
+function colorFor(label: string): string {
+  return label === "Litter" ? LITTER_COLOR : SMOKING_COLOR;
+}
 
 interface Props {
   events: EvidenceEvent[];
@@ -110,12 +115,13 @@ export default function EventsPanel({ events, live = false }: Props) {
             <span style={{ fontSize: 22, opacity: 0.4 }}>&#128276;</span>
             No events
             <span style={{ fontSize: 11, color: "#555" }}>
-              Smoking detections appear here
+              Smoking &amp; litter detections appear here
             </span>
           </div>
         ) : (
           events.map((ev) => {
             const pct = Math.round(ev.confidence * 100);
+            const color = colorFor(ev.label);
             return (
               <div
                 key={ev.id}
@@ -154,14 +160,14 @@ export default function EventsPanel({ events, live = false }: Props) {
                       style={{
                         fontWeight: 700,
                         fontSize: 12,
-                        color: SMOKING_COLOR,
+                        color,
                         textTransform: "uppercase",
                         letterSpacing: "0.04em",
                       }}
                     >
                       {ev.label}
                     </span>
-                    <span style={{ fontSize: 13, color: SMOKING_COLOR, fontWeight: 700 }}>
+                    <span style={{ fontSize: 13, color, fontWeight: 700 }}>
                       {pct}%
                     </span>
                   </div>
@@ -197,26 +203,48 @@ export default function EventsPanel({ events, live = false }: Props) {
           flexShrink: 0,
         }}
       >
-        <span
-          style={{
-            fontSize: 11,
-            color: "var(--muted)",
-            display: "flex",
-            alignItems: "center",
-            gap: 5,
-          }}
-        >
+        <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
           <span
             style={{
-              display: "inline-block",
-              width: 8,
-              height: 8,
-              borderRadius: "50%",
-              background: SMOKING_COLOR,
+              fontSize: 11,
+              color: "var(--muted)",
+              display: "flex",
+              alignItems: "center",
+              gap: 5,
             }}
-          />
-          Auto-saves smoking &ge; {Math.round(SMOKING_THRESHOLD * 100)}%
-        </span>
+          >
+            <span
+              style={{
+                display: "inline-block",
+                width: 8,
+                height: 8,
+                borderRadius: "50%",
+                background: SMOKING_COLOR,
+              }}
+            />
+            Smoking &ge; {Math.round(SMOKING_THRESHOLD * 100)}%
+          </span>
+          <span
+            style={{
+              fontSize: 11,
+              color: "var(--muted)",
+              display: "flex",
+              alignItems: "center",
+              gap: 5,
+            }}
+          >
+            <span
+              style={{
+                display: "inline-block",
+                width: 8,
+                height: 8,
+                borderRadius: "50%",
+                background: LITTER_COLOR,
+              }}
+            />
+            Litter &ge; {Math.round(LITTER_THRESHOLD * 100)}%
+          </span>
+        </div>
       </div>
 
       <style>{`@keyframes evIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }`}</style>

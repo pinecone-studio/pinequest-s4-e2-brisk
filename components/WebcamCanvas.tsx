@@ -3,8 +3,12 @@
 import { useEffect, useRef } from "react";
 import { runInference } from "@/lib/inference";
 import { Detection } from "@/lib/yoloDecode";
-import { ALERT_THRESHOLD, SMOKING_THRESHOLD } from "@/lib/modelConfig";
+import { ALERT_THRESHOLD, SMOKING_THRESHOLD, LITTER_THRESHOLD } from "@/lib/modelConfig";
 import type { EvidenceEvent } from "@/lib/evidence";
+
+type ViolationKind = { label: "Smoking" | "Litter"; type: "smoking" | "litter" };
+const SMOKING_KIND: ViolationKind = { label: "Smoking", type: "smoking" };
+const LITTER_KIND: ViolationKind = { label: "Litter", type: "litter" };
 
 const SMOKING_COLOR = "#ef4444";
 const LITTER_COLOR = "#f97316";
@@ -25,6 +29,7 @@ interface Props {
  */
 async function captureEvidence(
   video: HTMLVideoElement,
+  kind: ViolationKind,
   confidence: number,
   onEvent?: (event: EvidenceEvent) => void,
 ): Promise<void> {
@@ -60,7 +65,7 @@ async function captureEvidence(
     const form = new FormData();
     form.append("file", blob, "snapshot.jpg");
     form.append("cameraId", "webcam");
-    form.append("type", "smoking");
+    form.append("type", kind.type);
     form.append("confidence", String(confidence));
     try {
       const res = await fetch("/api/evidence", { method: "POST", body: form });
@@ -81,8 +86,8 @@ async function captureEvidence(
   }
 
   onEvent?.({
-    id: `${time}`,
-    label: "Smoking",
+    id: `${time}-${kind.type}`,
+    label: kind.label,
     confidence,
     time,
     thumb,
@@ -140,7 +145,7 @@ export default function WebcamCanvas({ onDetections, onEvent }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const onDetectionsRef = useRef(onDetections);
   const onEventRef = useRef(onEvent);
-  const lastCaptureRef = useRef(0);
+  const lastCaptureRef = useRef<{ smoking: number; litter: number }>({ smoking: 0, litter: 0 });
 
   useEffect(() => {
     onDetectionsRef.current = onDetections;
@@ -186,13 +191,32 @@ export default function WebcamCanvas({ onDetections, onEvent }: Props) {
 
             onDetectionsRef.current?.(dets);
 
-            // Capture evidence when a smoking detection clears 50% (throttled).
-            const smoking = dets
-              .filter((d) => d.label === "Smoking" && d.confidence >= SMOKING_THRESHOLD)
-              .sort((a, b) => b.confidence - a.confidence)[0];
-            if (smoking && Date.now() - lastCaptureRef.current >= CAPTURE_COOLDOWN_MS) {
-              lastCaptureRef.current = Date.now();
-              void captureEvidence(vid, smoking.confidence, onEventRef.current);
+            // Capture evidence when a smoking/litter detection clears 50%,
+            // throttled per-type so each fires at most once per cooldown.
+            const now = Date.now();
+            const best = (label: string) =>
+              dets
+                .filter((d) => d.label === label)
+                .sort((a, b) => b.confidence - a.confidence)[0];
+
+            const smoking = best("Smoking");
+            if (
+              smoking &&
+              smoking.confidence >= SMOKING_THRESHOLD &&
+              now - lastCaptureRef.current.smoking >= CAPTURE_COOLDOWN_MS
+            ) {
+              lastCaptureRef.current.smoking = now;
+              void captureEvidence(vid, SMOKING_KIND, smoking.confidence, onEventRef.current);
+            }
+
+            const litter = best("Litter");
+            if (
+              litter &&
+              litter.confidence >= LITTER_THRESHOLD &&
+              now - lastCaptureRef.current.litter >= CAPTURE_COOLDOWN_MS
+            ) {
+              lastCaptureRef.current.litter = now;
+              void captureEvidence(vid, LITTER_KIND, litter.confidence, onEventRef.current);
             }
 
             const { offsetWidth: w, offsetHeight: h } = container;

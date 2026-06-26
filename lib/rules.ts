@@ -51,6 +51,46 @@ function coverageRatio(
   return area > 0 ? intersectionArea(region, obj) / area : 0;
 }
 
+// A whole-person box fills a big chunk of the frame; a bottle held to the camera
+// does not get this large. Cut boxes above this (normalized 0..1 area).
+const MAX_LITTER_BOX_AREA = 0.5;
+
+// Fraction of a person's box (from the top) treated as the head/face region.
+// Litter centered here is the model misfiring on a face, not real litter.
+const HEAD_REGION_FRACTION = 0.34;
+
+type Box = [number, number, number, number];
+
+/**
+ * The litter model (single 'plastic-bottles' class) misfires on faces. We don't
+ * have time to retrain, so we only reject litter whose center sits in a person's
+ * head region (where the face false-positives land) or that is implausibly large.
+ * A bottle held up to the camera — lower than the face, a separate object — still
+ * registers, so it works for a live demo with a person in frame.
+ *
+ * `personBoxes` should include recently-seen people (see inference.ts) so a
+ * one-frame COCO dropout doesn't let a face slip through.
+ */
+export function filterLitterByPersons(
+  litterDets: Detection[],
+  personBoxes: Box[],
+): Detection[] {
+  return litterDets.filter((lit) => {
+    const litArea = boxArea(lit.box);
+    if (litArea > MAX_LITTER_BOX_AREA) return false;
+
+    const cx = (lit.box[0] + lit.box[2]) / 2;
+    const cy = (lit.box[1] + lit.box[3]) / 2;
+
+    const onFace = personBoxes.some((pb) => {
+      const [px1, py1, px2, py2] = pb;
+      const headBottom = py1 + (py2 - py1) * HEAD_REGION_FRACTION;
+      return cx >= px1 && cx <= px2 && cy >= py1 && cy <= headBottom;
+    });
+    return !onFace;
+  });
+}
+
 export function computeCompositeDetections(
   smokingDets: Detection[],
   cocoDets: Detection[],

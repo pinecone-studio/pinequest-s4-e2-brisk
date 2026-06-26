@@ -10,7 +10,7 @@ import {
   INPUT_SIZE,
 } from "./modelConfig";
 import { decodeYolo, Detection } from "./yoloDecode";
-import { computeCompositeDetections } from "./rules";
+import { computeCompositeDetections, filterLitterByPersons } from "./rules";
 
 // Smoking model output is [cx, cy, w, h, background, smoking].
 const SMOKING_CLASS_NAMES = ["-", "Smoking"];
@@ -65,6 +65,20 @@ export async function loadModels(): Promise<void> {
 // Reused across frames to avoid allocating a canvas every inference.
 let preprocessCanvas: HTMLCanvasElement | null = null;
 let preprocessCtx: CanvasRenderingContext2D | null = null;
+
+// Recently-seen person boxes, so litter suppression survives brief COCO misses.
+type Box = [number, number, number, number];
+const PERSON_MEMORY_MS = 1500;
+let recentPersons: { box: Box; t: number }[] = [];
+
+function rememberPersons(cocoDets: Detection[]): Box[] {
+  const now = Date.now();
+  recentPersons = recentPersons.filter((p) => now - p.t < PERSON_MEMORY_MS);
+  for (const det of cocoDets) {
+    if (det.label === "person") recentPersons.push({ box: det.box, t: now });
+  }
+  return recentPersons.map((p) => p.box);
+}
 
 function preprocessFrame(source: HTMLVideoElement | HTMLCanvasElement): Float32Array {
   if (!ort) throw new Error("ORT not loaded");
@@ -128,6 +142,11 @@ export async function runInference(video: HTMLVideoElement): Promise<Detection[]
     );
 
     const { smokingResults } = computeCompositeDetections(smokingDets, cocoDets);
+    // Drop litter boxes that coincide with a person (model misfires on people).
+    // Person boxes are kept "sticky" for a moment so a one-frame COCO dropout
+    // doesn't let a face slip through and get saved as litter.
+    const personBoxes = rememberPersons(cocoDets);
+    const filteredLitter = filterLitterByPersons(litterDets, personBoxes);
 
     return [
       ...smokingResults.map((r) => ({
@@ -135,7 +154,7 @@ export async function runInference(video: HTMLVideoElement): Promise<Detection[]
         confidence: r.compositeScore,
         box: r.personBox,
       })),
-      ...litterDets.map((r) => ({
+      ...filteredLitter.map((r) => ({
         label: "Litter",
         confidence: r.confidence,
         box: r.box,
