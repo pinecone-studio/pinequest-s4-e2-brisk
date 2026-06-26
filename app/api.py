@@ -12,7 +12,7 @@ from app.database import get_violations, get_stats_today
 
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="GuardAI")
+app = FastAPI(title="Aegis")
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 Path("evidence").mkdir(exist_ok=True)
 app.mount("/evidence", StaticFiles(directory="evidence"), name="evidence")

@@ -151,7 +151,7 @@ export default function CamerasPage() {
       <header>
         <div className="status-dot" />
         <div>
-          <h1>GuardAI</h1>
+          <h1>Aegis</h1>
           <div className="subtitle">Apartment Building Surveillance &bull; Live</div>
         </div>
       </header>

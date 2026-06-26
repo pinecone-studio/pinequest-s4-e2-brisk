@@ -90,7 +90,7 @@ export default function DemoPage() {
               margin: 0,
             }}
           >
-            GuardAI
+            Aegis
           </h1>
           <span style={{ color: "var(--border)" }}>|</span>
           <ModelStatusBadge state={modelState} />
