@@ -1,5 +1,5 @@
 """
-Train YOLOv8n on the Roboflow smoking dataset and save weights to models/smoking.pt.
+Train YOLO11n on the Roboflow smoking dataset and save weights to models/smoking.pt.
 Run from repo root: python3 scripts/train_model.py [--epochs N] [--imgsz N]
 
 Quick prototype run (5-10 min on M2):  python3 scripts/train_model.py --epochs 5 --imgsz 416
@@ -57,13 +57,21 @@ def download_dataset():
     print("Download complete.")
 
 
+def _pick_device() -> str:
+    if torch.cuda.is_available():
+        return "0"
+    if torch.backends.mps.is_available():
+        return "mps"
+    return "cpu"
+
+
 def train(epochs: int, imgsz: int, batch: int):
-    device = "mps" if torch.backends.mps.is_available() else "cpu"
+    device = _pick_device()
     print(f"Training on device: {device}  epochs={epochs}  imgsz={imgsz}")
 
     data_yaml = _fix_data_yaml(DATA_YAML)
 
-    model = YOLO("yolov8n.pt")
+    model = YOLO("yolo11n.pt")
     results = model.train(
         data=str(data_yaml),
         epochs=epochs,

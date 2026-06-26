@@ -158,8 +158,17 @@
   "connection_mode": "local",
   "rtsp_template": "rtsp://{ip}:554/",
   "model_path": "models/smoking.pt",
+  "security_model_path": "models/security.pt",
   "sample_rate": 15,
   "confidence_threshold": 0.50,
   "temporal_window": 2,
-  "cooldown_minutes": 5
+  "cooldown_minutes": 5,
+  "audio_enabled": true,
+  "audio_threshold": 0.35,
+  "fusion_mode": "any",
+  "fusion_threshold": 0.65,
+  "fusion_video_weight": 0.6,
+  "fusion_audio_weight": 0.4,
+  "motion_clip_dir": "input/motion",
+  "motion_clip_watcher": false
 }

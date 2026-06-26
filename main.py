@@ -77,6 +77,26 @@ def main():
     )
     det_thread.start()
 
+    watcher_thread = None
+    if config.get("motion_clip_watcher"):
+        from scripts.watch_motion_clips import scan_once
+
+        watch_dir = Path(config.get("motion_clip_dir", "input/motion"))
+        watch_dir.mkdir(parents=True, exist_ok=True)
+        _seen: set[str] = set()
+
+        def _watch_clips():
+            while not stop_event.is_set():
+                try:
+                    scan_once(watch_dir, config, _seen)
+                except Exception as exc:
+                    logger.error("Motion watcher error: %s", exc)
+                stop_event.wait(5)
+
+        watcher_thread = threading.Thread(target=_watch_clips, daemon=True, name="motion-watcher")
+        watcher_thread.start()
+        logger.info("Motion clip watcher enabled — dir: %s", watch_dir)
+
     def handle_signal(sig, frame):
         logger.info("Shutdown requested")
         stop_event.set()

@@ -1,8 +1,8 @@
 """
-Fine-tune YOLOv8 on the trash/litter dataset and save weights to models/trash.pt.
+Fine-tune YOLO11 on the trash/litter dataset and save weights to models/trash.pt.
 
 Preferred training (YOLO CLI):
-  yolo train model=yolov8n.pt data=models/trash-dataset/data.yaml epochs=20 imgsz=640 device=0 name=trash_run_v1
+  yolo train model=yolo11n.pt data=models/trash-dataset/data.yaml epochs=20 imgsz=640 device=0 name=trash_run_v1
 
 Or via this script:
   py scripts/train_trash_model.py --epochs 20 --imgsz 640
@@ -101,8 +101,16 @@ def ensure_base_weights() -> Path:
     return BASE_WEIGHTS
 
 
+def _pick_device() -> str:
+    if torch.cuda.is_available():
+        return "0"
+    if torch.backends.mps.is_available():
+        return "mps"
+    return "cpu"
+
+
 def train(epochs: int, imgsz: int, batch: int):
-    device = "mps" if torch.backends.mps.is_available() else "cpu"
+    device = _pick_device()
     print(f"Training on device: {device}  epochs={epochs}  imgsz={imgsz}")
 
     ensure_dataset()
