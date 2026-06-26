@@ -2,10 +2,15 @@ import type { CameraView } from "./cameraTypes";
 
 export async function fetchCameraConfig(): Promise<CameraView[]> {
   const response = await fetch("/api/cameras");
-  if (!response.ok) {
-    throw new Error(`Failed to load camera config: ${response.status}`);
+  const contentType = response.headers.get("content-type") ?? "";
+  if (!contentType.includes("application/json")) {
+    throw new Error(`Camera API returned non-JSON response (${response.status})`);
   }
-  return response.json();
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data?.error ?? `Failed to load camera config: ${response.status}`);
+  }
+  return data;
 }
 
 export function buildCameraStreamUrl(camera: CameraView): string {

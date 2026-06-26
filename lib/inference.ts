@@ -10,11 +10,9 @@ import {
   INPUT_SIZE,
 } from "./modelConfig";
 import { decodeYolo, Detection } from "./yoloDecode";
-import { computeCompositeDetections, filterLitterByPersons } from "./rules";
+import { computeCompositeDetections, getFaceBoxes, filterLitterByFaces } from "./rules";
 
-// Smoking model output is [cx, cy, w, h, background, smoking].
 const SMOKING_CLASS_NAMES = ["-", "Smoking"];
-// Trash model trained on plastic-bottle class (maps to "Litter" via normalizeLabel).
 const LITTER_CLASS_NAMES = ["plastic-bottles"];
 
 let ort: typeof OrtType | null = null;
@@ -31,8 +29,6 @@ export async function loadModels(): Promise<void> {
   ort.env.wasm.wasmPaths = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.27.0/dist/";
   ort.env.wasm.numThreads = 1;
 
-  // WebGPU (Chrome/Edge) is several times faster than the single-thread WASM
-  // backend. Try it first, fall back to WASM if the device lacks it.
   const hasWebGPU =
     typeof navigator !== "undefined" &&
     (navigator as Navigator & { gpu?: unknown }).gpu != null;
@@ -49,7 +45,6 @@ export async function loadModels(): Promise<void> {
     ]);
     activeBackend = hasWebGPU ? "webgpu" : "wasm";
   } catch (err) {
-    // WebGPU init can fail on some GPUs/drivers — retry on WASM only.
     console.warn("[inference] WebGPU init failed, falling back to WASM:", err);
     const createWasm = (path: string) =>
       ort!.InferenceSession.create(path, { executionProviders: ["wasm"] });
@@ -62,11 +57,9 @@ export async function loadModels(): Promise<void> {
   }
 }
 
-// Reused across frames to avoid allocating a canvas every inference.
 let preprocessCanvas: HTMLCanvasElement | null = null;
 let preprocessCtx: CanvasRenderingContext2D | null = null;
 
-// Recently-seen person boxes, so litter suppression survives brief COCO misses.
 type Box = [number, number, number, number];
 const PERSON_MEMORY_MS = 1500;
 let recentPersons: { box: Box; t: number }[] = [];
@@ -111,7 +104,6 @@ export async function runInference(video: HTMLVideoElement): Promise<Detection[]
     const inputData = preprocessFrame(video);
     const tensor = new ort.Tensor("float32", inputData, [1, 3, INPUT_SIZE, INPUT_SIZE]);
 
-    // Sequential — WASM backend throws "Session already started" on concurrent runs
     const smokingResult = await smokingSession.run({ [smokingSession.inputNames[0]]: tensor });
     const litterResult = await litterSession.run({ [litterSession.inputNames[0]]: tensor });
     const cocoResult = await cocoSession.run({ [cocoSession.inputNames[0]]: tensor });
@@ -142,11 +134,9 @@ export async function runInference(video: HTMLVideoElement): Promise<Detection[]
     );
 
     const { smokingResults } = computeCompositeDetections(smokingDets, cocoDets);
-    // Drop litter boxes that coincide with a person (model misfires on people).
-    // Person boxes are kept "sticky" for a moment so a one-frame COCO dropout
-    // doesn't let a face slip through and get saved as litter.
     const personBoxes = rememberPersons(cocoDets);
-    const filteredLitter = filterLitterByPersons(litterDets, personBoxes);
+    const faceBoxes = getFaceBoxes(personBoxes);
+    const filteredLitter = filterLitterByFaces(litterDets, faceBoxes);
 
     return [
       ...smokingResults.map((r) => ({

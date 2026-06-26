@@ -13,14 +13,13 @@ const LITTER_KIND: ViolationKind = { label: "Litter", type: "litter" };
 const SMOKING_COLOR = "#ef4444";
 const LITTER_COLOR = "#f97316";
 
-// Minimum gap between saved evidence snapshots, to avoid spamming the
-// evidence/ folder while the model fires every frame (~10 fps).
 const CAPTURE_COOLDOWN_MS = 8000;
 const THUMB_WIDTH = 200;
 
 interface Props {
   onDetections?: (dets: Detection[]) => void;
   onEvent?: (event: EvidenceEvent) => void;
+  paused?: boolean;
 }
 
 /**
@@ -139,21 +138,26 @@ function drawBoxes(
   }
 }
 
-export default function WebcamCanvas({ onDetections, onEvent }: Props) {
+export default function WebcamCanvas({ onDetections, onEvent, paused }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const overlayRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const onDetectionsRef = useRef(onDetections);
   const onEventRef = useRef(onEvent);
+  const pausedRef = useRef(paused);
   const lastCaptureRef = useRef<{ smoking: number; litter: number }>({ smoking: 0, litter: 0 });
 
+  useEffect(() => { onDetectionsRef.current = onDetections; }, [onDetections]);
+  useEffect(() => { onEventRef.current = onEvent; }, [onEvent]);
   useEffect(() => {
-    onDetectionsRef.current = onDetections;
-  }, [onDetections]);
-
-  useEffect(() => {
-    onEventRef.current = onEvent;
-  }, [onEvent]);
+    pausedRef.current = paused;
+    // Clear boxes immediately when pausing
+    if (paused) {
+      const overlay = overlayRef.current;
+      if (overlay) overlay.getContext("2d")?.clearRect(0, 0, overlay.width, overlay.height);
+      onDetectionsRef.current?.([]);
+    }
+  }, [paused]);
 
   useEffect(() => {
     let running = true;
@@ -185,7 +189,7 @@ export default function WebcamCanvas({ onDetections, onEvent }: Props) {
         const overlay = overlayRef.current;
         const container = containerRef.current;
 
-        if (vid && overlay && container && vid.readyState >= 2) {
+        if (vid && overlay && container && vid.readyState >= 2 && !pausedRef.current) {
           try {
             const dets = await runInference(vid);
 
