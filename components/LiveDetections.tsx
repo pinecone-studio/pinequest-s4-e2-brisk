@@ -137,7 +137,6 @@ const LiveDetections = forwardRef<LiveDetectionsHandle>(function LiveDetections(
         display: "flex",
         flexDirection: "column",
         overflow: "hidden",
-        maxHeight: "40%",
         flexShrink: 0,
       }}
     >
