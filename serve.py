@@ -1,7 +1,7 @@
 """
 Standalone dashboard server — no live cameras required.
 Usage: python3 serve.py [--port PORT]
-Opens the GuardAI web dashboard at http://localhost:8080
+Opens the Aegis web dashboard at http://localhost:8080
 """
 import argparse
 import sys
@@ -33,6 +33,6 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--port", type=int, default=8080, help="Port to listen on (default: 8080)")
 args = parser.parse_args()
 
-print(f"\nGuardAI Dashboard")
+print(f"\nAegis Dashboard")
 print(f"  URL: http://localhost:{args.port}\n")
 uvicorn.run(fastapi_app, host="0.0.0.0", port=args.port, log_level="warning")

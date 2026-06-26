@@ -89,7 +89,7 @@ def main():
 
     stop_event.set()
     det_thread.join(timeout=5)
-    logger.info("GuardAI stopped")
+    logger.info("Aegis stopped")
 
 
 if __name__ == "__main__":
