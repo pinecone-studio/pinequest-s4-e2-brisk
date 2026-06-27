@@ -4,7 +4,7 @@ import numpy as np
 from collections import defaultdict, deque
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 from app.database import insert_violation
 
@@ -17,6 +17,10 @@ EVIDENCE_DIR.mkdir(exist_ok=True)
 _windows: Dict[Tuple[str, str], deque] = defaultdict(lambda: deque(maxlen=5))
 # {(camera_id, vtype): datetime of last confirmed violation}
 _cooldowns: Dict[Tuple[str, str], datetime] = {}
+
+# object_ids already written to DB this session — abandonment machine already guards
+# ALERTED state, but this is belt-and-suspenders against any re-fire glitch
+_alerted_litter_ids: Set[int] = set()
 
 
 def _is_on_cooldown(camera_id: str, vtype: str, cooldown_minutes: int) -> bool:
@@ -107,3 +111,68 @@ def process(frame: np.ndarray, detections: List[Dict],
             _windows[key].append(False)
 
     return fired
+
+
+def report_littering_event(
+    frame: np.ndarray,
+    evt,            # app.abandonment.LitteringEvent — avoid circular import with string hint
+    source_id: str,
+) -> Optional[Dict]:
+    """
+    Persist one littering event: annotated snapshot → evidence/, SQLite row, violation dict.
+
+    Returns the violation dict (for WebSocket broadcast) or None if the event is a
+    duplicate or suppressed by cooldown.  The abandonment machine's ALERTED state
+    already prevents re-fires per object; the checks here are belt-and-suspenders.
+    """
+    # Per-object dedup: abandonment machine's ALERTED state already prevents re-fires,
+    # but this set is belt-and-suspenders for the lifetime of the process.
+    if evt.object_id in _alerted_litter_ids:
+        return None
+
+    _alerted_litter_ids.add(evt.object_id)
+
+    # Annotated snapshot — clean frame with drop marker and banner
+    annotated = frame.copy()
+    if evt.drop_location:
+        cv2.circle(annotated, evt.drop_location, 14, (0, 0, 255), -1)
+        cv2.circle(annotated, evt.drop_location, 14, (255, 255, 255), 2)
+
+    ts_label = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    cv2.rectangle(annotated, (0, 0), (annotated.shape[1], 56), (0, 0, 180), -1)
+    cv2.putText(
+        annotated,
+        f"LITTERING | obj={evt.object_id}  owner={evt.owner_id} | {ts_label}",
+        (10, 38),
+        cv2.FONT_HERSHEY_SIMPLEX, 0.65, (255, 255, 255), 2, cv2.LINE_AA,
+    )
+
+    ts_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    fname = f"{ts_str}_{source_id}_littering_obj{evt.object_id}.jpg"
+    img_path = str(EVIDENCE_DIR / fname)
+    cv2.imwrite(img_path, annotated)
+
+    row_id = insert_violation(
+        camera_id=source_id,
+        floor=0,
+        zone="webcam",
+        vtype="littering",
+        confidence=1.0,
+        image_path=img_path,
+    )
+
+    violation = {
+        "id": row_id,
+        "camera_id": source_id,
+        "floor": 0,
+        "zone": "webcam",
+        "type": "littering",
+        "confidence": 1.0,
+        "image_path": img_path,
+        "created_at": ts_label,
+        "object_id": evt.object_id,
+        "owner_id": evt.owner_id,
+        "drop_location": list(evt.drop_location) if evt.drop_location else None,
+    }
+    logger.info("Littering event recorded: %s", violation)
+    return violation
