@@ -21,3 +21,4 @@ out/
 # Training data — not used at runtime, must never be committed/deployed.
 # Runtime models live in public/models/ and stay tracked.
 models/smoking-dataset/
+models/security-dataset/
