@@ -1,6 +1,6 @@
 import type { NextConfig } from "next";
 
-const fastApiOrigin = process.env.FASTAPI_ORIGIN ?? "http://localhost:8080";
+const fastApiOrigin = process.env.FASTAPI_ORIGIN ?? "http://localhost:8000";
 const isStaticExport = process.env.STATIC_EXPORT === "1";
 
 const nextConfig: NextConfig = {

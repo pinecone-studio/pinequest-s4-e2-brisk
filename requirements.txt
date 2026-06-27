@@ -12,4 +12,4 @@ pyyaml>=6.0
 tensorflow-hub>=0.16.0
 tensorflow>=2.16.0
 scipy>=1.11.0
-docker>=7.1.0
+python-nmap>=0.7.1

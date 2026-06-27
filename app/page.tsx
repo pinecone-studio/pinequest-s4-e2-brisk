@@ -3,7 +3,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import CameraGrid from "./cameras/components/CameraGrid";
-import { fetchCameraConfig } from "./cameras/lib/cameraApi";
+import CameraCredentialsModal, {
+  type CameraCredentials,
+} from "./cameras/components/CameraCredentialsModal";
+import CredentialsPanel, { type GlobalCredentials } from "./cameras/components/CredentialsPanel";
+import {
+  fetchDiscoveryResults,
+  fetchDiscoverySubnet,
+  startDiscoveryScan,
+  type DiscoveryStatus,
+} from "./cameras/lib/cameraApi";
+import {
+  applyCredentialsToCamera,
+  getPasswordListForCamera,
+  loadGlobalCredentials,
+  saveGlobalCredentials,
+} from "./cameras/lib/applyCameraCredentials";
 import type { CameraView } from "./cameras/lib/cameraTypes";
 import { loadModels, activeBackend } from "@/lib/inference";
 import type { Detection } from "@/lib/yoloDecode";
@@ -15,8 +30,12 @@ import ModelStatusBadge from "@/components/ModelStatusBadge";
 const WebcamCanvas = dynamic(() => import("@/components/WebcamCanvas"), { ssr: false });
 
 const MAX_EVENTS = 50;
+const DISCOVERY_POLL_INTERVAL_MS = 2000;
+const MAX_DISCOVERY_POLL_MS = 310_000;
 type LayoutCols = 1 | 2 | 3;
 type View = "webcam" | "cameras";
+
+const TERMINAL_DISCOVERY_STATUSES: DiscoveryStatus[] = ["completed", "failed", "timeout"];
 
 function groupCameras(cameras: CameraView[]) {
   const groups = new Map<string, CameraView[]>();
@@ -81,31 +100,240 @@ export default function HomePage() {
   const [columns, setColumns] = useState<LayoutCols>(2);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [now, setNow] = useState<Date | null>(null);
+  const [globalCredentials, setGlobalCredentials] = useState<GlobalCredentials>({
+    username: "admin",
+    passwords: "",
+  });
+  const [cameraCredentials, setCameraCredentials] = useState<Record<string, CameraCredentials>>({});
+  const [passwordAttempts, setPasswordAttempts] = useState<Record<string, number>>({});
+  const [retryKeys, setRetryKeys] = useState<Record<string, number>>({});
+  const [credentialsModalCameraId, setCredentialsModalCameraId] = useState<string | null>(null);
+  const [discoveryStatus, setDiscoveryStatus] = useState<DiscoveryStatus>("completed");
+  const [isStartingScan, setIsStartingScan] = useState(false);
+  const credentialsModalOpen = credentialsModalCameraId !== null;
+  const credentialsModalOpenRef = useRef(false);
+  credentialsModalOpenRef.current = credentialsModalOpen;
 
-  function refreshCameraStatus() {
-    fetchCameraConfig()
-      .then((cams) => {
-        setCameras(cams);
-        setCameraLoadError(null);
-        setSelectedId((current) => current ?? cams[0]?.id ?? null);
-        const affected = cams.find((c) => c.enabled && !c.inference_enabled);
-        setModelWarning(
-          affected
-            ? `YOLO inference disabled: ${affected.model_error ?? `model not loaded from ${affected.model_path}`}`
-            : null,
-        );
-      })
-      .catch((err) => {
-        setCameraLoadError(err instanceof Error ? err.message : "Failed to load cameras");
-      });
-  }
+  const isScanning = discoveryStatus === "running";
+  const showScanOverlay = isScanning || isStartingScan;
 
   useEffect(() => {
-    refreshCameraStatus();
-    const t = setInterval(refreshCameraStatus, 3000);
-    return () => clearInterval(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    setGlobalCredentials(loadGlobalCredentials());
   }, []);
+
+  function bumpRetryKeys(cameraIds?: string[]) {
+    setRetryKeys((current) => {
+      const next = { ...current };
+      const ids = cameraIds ?? cameras.map((camera) => camera.id);
+      for (const id of ids) {
+        next[id] = (next[id] ?? 0) + 1;
+      }
+      return next;
+    });
+  }
+
+  function resetStreamAttempts(cameraIds?: string[]) {
+    setPasswordAttempts((current) => {
+      const next = { ...current };
+      const ids = cameraIds ?? cameras.map((camera) => camera.id);
+      for (const id of ids) {
+        next[id] = 0;
+      }
+      return next;
+    });
+    bumpRetryKeys(cameraIds);
+  }
+
+  function handleApplyGlobalCredentials() {
+    saveGlobalCredentials(globalCredentials);
+    setCameraCredentials({});
+    resetStreamAttempts();
+  }
+
+  function handleStreamFailed(cameraId: string) {
+    const passwords = getPasswordListForCamera(cameraId, globalCredentials, cameraCredentials);
+    const currentAttempt = passwordAttempts[cameraId] ?? 0;
+
+    if (currentAttempt + 1 < passwords.length) {
+      setPasswordAttempts((current) => ({
+        ...current,
+        [cameraId]: currentAttempt + 1,
+      }));
+      bumpRetryKeys([cameraId]);
+    }
+  }
+
+  function handleSaveCameraCredentials(credentials: CameraCredentials) {
+    if (!credentialsModalCameraId) return;
+
+    setCameraCredentials((current) => ({
+      ...current,
+      [credentialsModalCameraId]: credentials,
+    }));
+    setPasswordAttempts((current) => ({
+      ...current,
+      [credentialsModalCameraId]: 0,
+    }));
+    bumpRetryKeys([credentialsModalCameraId]);
+    setCredentialsModalCameraId(null);
+  }
+
+  const streamedCameras = useMemo(
+    () =>
+      cameras.map((camera) =>
+        applyCredentialsToCamera(
+          camera,
+          globalCredentials,
+          cameraCredentials,
+          passwordAttempts,
+          retryKeys,
+        ),
+      ),
+    [cameras, globalCredentials, cameraCredentials, passwordAttempts, retryKeys],
+  );
+
+  const credentialsModalCamera = useMemo(
+    () => cameras.find((camera) => camera.id === credentialsModalCameraId) ?? null,
+    [cameras, credentialsModalCameraId],
+  );
+
+  const credentialsModalInitial = useMemo(
+    () =>
+      credentialsModalCameraId
+        ? (cameraCredentials[credentialsModalCameraId] ?? {
+            username: globalCredentials.username,
+            password: "",
+          })
+        : null,
+    [credentialsModalCameraId, cameraCredentials, globalCredentials.username],
+  );
+
+  const applyDiscoveryResults = useCallback((cams: CameraView[]) => {
+    if (credentialsModalOpenRef.current) return;
+
+    setCameras(cams);
+    setCameraLoadError(null);
+    setModelWarning(null);
+    setSelectedId((current) => {
+      if (current && cams.some((camera) => camera.id === current)) {
+        return current;
+      }
+      return cams[0]?.id ?? null;
+    });
+  }, []);
+
+  const refreshCameraStatus = useCallback(async (): Promise<DiscoveryStatus | null> => {
+    if (credentialsModalOpenRef.current) return null;
+
+    try {
+      const { cameras: cams, status } = await fetchDiscoveryResults();
+      setDiscoveryStatus(status);
+      applyDiscoveryResults(cams);
+      return status;
+    } catch (err) {
+      setCameraLoadError(err instanceof Error ? err.message : "Failed to load discovered cameras");
+      return null;
+    }
+  }, [applyDiscoveryResults]);
+
+  const handleScanNetwork = useCallback(async () => {
+    if (isScanning || isStartingScan) return;
+
+    setIsStartingScan(true);
+    setCameraLoadError(null);
+    setDiscoveryStatus("running");
+    setCameras([]);
+    setSelectedId(null);
+
+    try {
+      const subnet = await fetchDiscoverySubnet();
+      await startDiscoveryScan(subnet);
+
+      const afterStart = await fetchDiscoveryResults();
+      setDiscoveryStatus(afterStart.status);
+      applyDiscoveryResults(afterStart.cameras);
+    } catch (err) {
+      setDiscoveryStatus("failed");
+      setCameraLoadError(
+        err instanceof Error ? err.message : "Failed to start camera discovery scan",
+      );
+    } finally {
+      setIsStartingScan(false);
+    }
+  }, [applyDiscoveryResults, isScanning, isStartingScan]);
+
+  // Load last scan results when Live Monitoring opens (no auto-scan).
+  useEffect(() => {
+    if (view !== "cameras") return;
+
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const initial = await fetchDiscoveryResults();
+        if (cancelled) return;
+
+        setDiscoveryStatus(initial.status);
+        applyDiscoveryResults(initial.cameras);
+      } catch (err) {
+        if (cancelled) return;
+        setCameraLoadError(
+          err instanceof Error ? err.message : "Failed to load discovered cameras",
+        );
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [view, applyDiscoveryResults]);
+
+  // Poll for progressive results while scan is running; pause when credentials modal is open.
+  useEffect(() => {
+    if (view !== "cameras" || credentialsModalOpen) return;
+
+    if (TERMINAL_DISCOVERY_STATUSES.includes(discoveryStatus)) {
+      void refreshCameraStatus();
+      return;
+    }
+
+    let cancelled = false;
+    let timer: ReturnType<typeof setInterval> | null = null;
+    const pollDeadline = Date.now() + MAX_DISCOVERY_POLL_MS;
+
+    const stopPolling = () => {
+      if (timer) {
+        clearInterval(timer);
+        timer = null;
+      }
+    };
+
+    const tick = async (): Promise<DiscoveryStatus | null> => {
+      if (cancelled || credentialsModalOpenRef.current) return null;
+      return refreshCameraStatus();
+    };
+
+    void tick();
+
+    timer = setInterval(async () => {
+      if (Date.now() >= pollDeadline) {
+        setDiscoveryStatus("timeout");
+        setCameraLoadError("Scan timed out waiting for results.");
+        stopPolling();
+        return;
+      }
+
+      const nextStatus = await tick();
+      if (!nextStatus || TERMINAL_DISCOVERY_STATUSES.includes(nextStatus)) {
+        stopPolling();
+      }
+    }, DISCOVERY_POLL_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      stopPolling();
+    };
+  }, [view, credentialsModalOpen, discoveryStatus, refreshCameraStatus]);
 
   useEffect(() => {
     setNow(new Date());
@@ -115,14 +343,14 @@ export default function HomePage() {
 
   const filteredCameras = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return cameras;
-    return cameras.filter(
+    if (!q) return streamedCameras;
+    return streamedCameras.filter(
       (c) =>
         cameraLabel(c).toLowerCase().includes(q) ||
         (c.host ?? "").toLowerCase().includes(q) ||
         c.id.toLowerCase().includes(q),
     );
-  }, [cameras, search]);
+  }, [streamedCameras, search]);
 
   const groups = useMemo(() => groupCameras(filteredCameras), [filteredCameras]);
   const onlineCount = useMemo(() => cameras.filter((c) => c.online).length, [cameras]);
@@ -214,6 +442,33 @@ export default function HomePage() {
           display: flex; align-items: center; justify-content: center;
         }
         .icon-btn:hover { color: var(--text); }
+        .scan-btn {
+          height: 40px; padding: 0 14px; border-radius: 10px; border: 1px solid var(--border);
+          background: var(--card); color: var(--text); cursor: pointer;
+          display: flex; align-items: center; gap: 8px;
+          font-size: 13px; font-weight: 500; white-space: nowrap;
+          transition: all 0.15s;
+        }
+        .scan-btn:hover:not(:disabled) { border-color: var(--brand); color: var(--brand); }
+        .scan-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+        .cameras-view-wrap {
+          display: flex; flex: 1; min-width: 0; position: relative; overflow: hidden;
+        }
+        .scan-overlay {
+          position: absolute; inset: 0; z-index: 40;
+          display: flex; flex-direction: column; align-items: center; justify-content: center;
+          gap: 16px; padding: 24px; text-align: center;
+          background: rgba(8, 8, 8, 0.82); backdrop-filter: blur(6px);
+        }
+        .scan-overlay .spinner {
+          width: 44px; height: 44px;
+          border: 3px solid rgba(255,255,255,0.12);
+          border-top-color: var(--brand);
+          border-radius: 50%;
+          animation: spin 0.85s linear infinite;
+        }
+        .scan-overlay .title { font-size: 16px; font-weight: 600; color: var(--text); }
+        .scan-overlay .subtitle { font-size: 13px; color: var(--muted); max-width: 360px; line-height: 1.5; }
         .profile { display: flex; align-items: center; gap: 9px; cursor: pointer; }
         .avatar {
           width: 36px; height: 36px; border-radius: 50%;
@@ -409,14 +664,26 @@ export default function HomePage() {
 
           {/* ── CAMERA ROOM VIEW ── */}
           {view === "cameras" && (
-            <>
+            <div className="cameras-view-wrap">
+              {showScanOverlay ? (
+                <div className="scan-overlay" role="status" aria-live="polite">
+                  <div className="spinner" aria-hidden="true" />
+                  <div className="title">Scanning local network for IP cameras…</div>
+                  <div className="subtitle">Please wait while we search your subnet for RTSP devices.</div>
+                </div>
+              ) : null}
+
               {/* sidebar: camera list */}
               <aside className="sidebar">
                 <div className="sidebar-head">
                   <span className="title">Live Monitoring</span>
                 </div>
                 {groups.length === 0 ? (
-                  <div style={{ padding: "8px", color: "var(--faint)", fontSize: 13 }}>No cameras found</div>
+                  <div style={{ padding: "8px", color: "var(--faint)", fontSize: 13 }}>
+                    {showScanOverlay
+                      ? "Searching for cameras…"
+                      : "No cameras found. Click Scan Network to search your local network."}
+                  </div>
                 ) : (
                   groups.map(([groupName, groupCams]) => (
                     <div key={groupName}>
@@ -457,9 +724,32 @@ export default function HomePage() {
                     <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search Camera" />
                   </div>
                   <div className="topbar-right">
+                    <button
+                      type="button"
+                      className="scan-btn"
+                      onClick={() => void handleScanNetwork()}
+                      disabled={showScanOverlay}
+                      title="Scan local network for IP cameras"
+                    >
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M4 7h10" />
+                        <path d="M4 12h7" />
+                        <path d="M4 17h6" />
+                        <circle cx="17" cy="15" r="3" />
+                        <path d="M19.2 17.2 22 20" />
+                      </svg>
+                      Scan Network
+                    </button>
+                    <CredentialsPanel
+                      credentials={globalCredentials}
+                      onChange={setGlobalCredentials}
+                      onApply={handleApplyGlobalCredentials}
+                    />
                     <div className="status-strip">
-                      <span className="dot" />
-                      {onlineCount}/{cameras.length} online
+                      <span className="dot" style={showScanOverlay ? { background: "var(--yellow)", boxShadow: "0 0 6px var(--yellow)" } : undefined} />
+                      {showScanOverlay
+                        ? "Scanning network…"
+                        : `${onlineCount}/${cameras.length} online`}
                     </div>
                     <button className="icon-btn" title="Notifications">
                       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -511,11 +801,27 @@ export default function HomePage() {
                       {cameraLoadError}
                     </div>
                   ) : (
-                    <CameraGrid cameras={filteredCameras} columns={columns} selectedId={selectedId} onSelect={setSelectedId} />
+                    <CameraGrid
+                      cameras={filteredCameras}
+                      columns={columns}
+                      selectedId={selectedId}
+                      onSelect={setSelectedId}
+                      onStreamFailed={handleStreamFailed}
+                      onCredentialsRequest={setCredentialsModalCameraId}
+                    />
                   )}
                 </div>
               </section>
-            </>
+              {credentialsModalCamera && credentialsModalInitial ? (
+                <CameraCredentialsModal
+                  key={credentialsModalCamera.id}
+                  camera={credentialsModalCamera}
+                  initialCredentials={credentialsModalInitial}
+                  onClose={() => setCredentialsModalCameraId(null)}
+                  onSave={handleSaveCameraCredentials}
+                />
+              ) : null}
+            </div>
           )}
         </div>
       </div>

@@ -15,10 +15,12 @@ class FakeDiscoveryService:
         self.delay = delay
         self.calls = 0
 
-    def discover(self, targets):
+    def discover(self, targets, on_progress=None):
         self.calls += 1
         if self.delay:
             asyncio.run(asyncio.sleep(self.delay))
+        if on_progress and self.result.cameras:
+            on_progress(list(self.result.cameras))
         return self.result
 
 

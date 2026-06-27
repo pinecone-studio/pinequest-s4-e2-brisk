@@ -1,33 +1,67 @@
-"""
-Camera discovery service backed by Cameradar.
-
-The service keeps Cameradar and Docker-specific behavior isolated so another
-implementation, such as ONVIF discovery, can replace it behind the same shape.
-"""
+"""Pure Python camera discovery using nmap and RTSP DESCRIBE probes."""
 
 from __future__ import annotations
 
 import logging
-import tempfile
+import socket
+import time
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Iterable, List, Optional
-from urllib.parse import urlparse
+from typing import Callable, Iterable, List, Optional, Sequence
 
 from app.services.base import BaseCameraDiscoveryService
 
+try:
+    import nmap
+except ImportError:  # pragma: no cover - exercised only when dependency is missing.
+    class _MissingNmap:
+        def PortScanner(self):
+            raise RuntimeError("python-nmap is not installed. Run 'pip3 install python-nmap'.")
+
+    nmap = _MissingNmap()
+
 logger = logging.getLogger(__name__)
+
+SCAN_PORTS = [554, 8554, 80, 8080]
+PING_SWEEP_ARGUMENTS = "-sn -n -T5"
+# python-nmap expects full paths to the nmap *binary*, not directories.
+NMAP_SEARCH_PATH = [
+    "nmap",
+    "/opt/homebrew/bin/nmap",
+    "/usr/local/bin/nmap",
+    "/usr/bin/nmap",
+]
+
+RTSP_ROUTES = [
+    "/stream1",
+    "/stream2",
+    "/live",
+    "/live.sdp",
+    "/h264/ch1/main/av_stream",
+    "/Streaming/Channels/1",
+    "/cam/realmonitor?channel=1&subtype=0",
+    "/h264Preview_01_main",
+    "/onvif/device_service",
+    "/MediaInput/h264",
+    "/video.h264",
+]
+
+DEFAULT_CREDENTIALS = [
+    ("admin", "admin"),
+    ("admin", "12345"),
+    ("admin", ""),
+    ("root", "root"),
+    ("admin", "admin123"),
+]
 
 
 @dataclass
 class CameraDiscoveryConfig:
-    image: str = "ullaakut/cameradar:latest"
-    output_filename: str = "cameradar-results.m3u"
-    targets_filename: str = "cameradar-targets.txt"
     timeout_seconds: int = 300
-    docker_network_mode: str = "host"
-    docker_client: Optional[object] = None
-    extra_args: List[str] = field(default_factory=list)
+    scan_ports: List[int] = field(default_factory=lambda: SCAN_PORTS.copy())
+    rtsp_routes: List[str] = field(default_factory=lambda: RTSP_ROUTES.copy())
+    credentials: List[tuple[str, str]] = field(default_factory=lambda: DEFAULT_CREDENTIALS.copy())
+    probe_timeout_seconds: float = 1.0
+    probe_rtsp: bool = False
 
 
 @dataclass
@@ -39,6 +73,9 @@ class DiscoveredCamera:
     username: Optional[str] = None
     password: Optional[str] = None
     raw_entry: Optional[str] = None
+    model: str = "Unknown"
+    rtsp_route: Optional[str] = None
+    is_accessible: bool = False
 
 
 @dataclass
@@ -53,17 +90,29 @@ class CameraDiscoveryResult:
     cameras: List[DiscoveredCamera] = field(default_factory=list)
     errors: List[CameraDiscoveryError] = field(default_factory=list)
     raw_output: str = ""
+    scan_duration_seconds: float = 0.0
+    target_subnet: str = ""
+    error: Optional[str] = None
 
     @property
     def ok(self) -> bool:
-        return not self.errors
+        return not self.errors and self.error is None
+
+
+DiscoveryResult = CameraDiscoveryResult
 
 
 class CameraDiscoveryService(BaseCameraDiscoveryService):
     def __init__(self, config: Optional[CameraDiscoveryConfig] = None):
         self.config = config or CameraDiscoveryConfig()
 
-    def discover(self, targets: str | Iterable[str]) -> CameraDiscoveryResult:
+    def discover(
+        self,
+        targets: str | Iterable[str],
+        ports: Optional[Sequence[int]] = None,
+        on_progress: Optional[Callable[[List[DiscoveredCamera]], None]] = None,
+    ) -> CameraDiscoveryResult:
+        start_time = time.time()
         try:
             normalized_targets = self._normalize_targets(targets)
         except ValueError as exc:
@@ -83,152 +132,146 @@ class CameraDiscoveryService(BaseCameraDiscoveryService):
                 )
             ])
 
-        with tempfile.TemporaryDirectory(prefix="cameradar-") as output_dir:
-            target_path = Path(output_dir) / self.config.targets_filename
-            target_path.write_text("\n".join(normalized_targets))
-            output_path = Path(output_dir) / self.config.output_filename
-            try:
-                raw_output = self._run_cameradar(output_dir)
-            except Exception as exc:
-                logger.warning("Camera discovery failed: %s", exc)
-                return CameraDiscoveryResult(errors=[
-                    CameraDiscoveryError(
-                        code="docker_execution_failed",
-                        message="Cameradar could not be executed through Docker.",
-                        detail=str(exc),
-                    )
-                ])
-
-            try:
-                cameras = self._parse_output(output_path, raw_output)
-            except ValueError as exc:
-                logger.warning("Camera discovery parsing failed: %s", exc)
-                return CameraDiscoveryResult(raw_output=raw_output, errors=[
-                    CameraDiscoveryError(
-                        code="parse_failed",
-                        message="Cameradar output could not be parsed.",
-                        detail=str(exc),
-                    )
-                ])
-
-            return CameraDiscoveryResult(cameras=cameras, raw_output=raw_output)
-
-    def _run_cameradar(self, output_dir: str) -> str:
-        docker_module = None
-        if self.config.docker_client is None:
-            try:
-                import docker as docker_module
-            except ImportError as exc:
-                raise RuntimeError(
-                    "Docker Python SDK is not installed. Install the 'docker' package."
-                ) from exc
-            client = docker_module.from_env()
-        else:
-            client = self.config.docker_client
-
-        container_output_path = f"/tmp/cameradar-output/{self.config.output_filename}"
-        container_target_path = f"/tmp/cameradar-output/{self.config.targets_filename}"
-        command = self._build_command(container_target_path, container_output_path)
+        scan_ports = list(ports or self.config.scan_ports)
+        cameras: List[DiscoveredCamera] = []
+        raw_outputs: List[str] = []
 
         try:
-            container = client.containers.run(
-                self.config.image,
-                command=command,
-                stdout=True,
-                stderr=True,
-                detach=True,
-                network_mode=self.config.docker_network_mode,
-                volumes={
-                    output_dir: {
-                        "bind": "/tmp/cameradar-output",
-                        "mode": "rw",
-                    }
-                },
-            )
-            wait_result = container.wait(timeout=self.config.timeout_seconds)
-            output = container.logs(stdout=True, stderr=True)
-            status_code = wait_result.get("StatusCode", 0)
-            if status_code != 0:
-                raise RuntimeError(
-                    f"Cameradar exited with status {status_code}: {self._decode_bytes(output)}"
-                )
+            for target in normalized_targets:
+                target_cameras, raw_output = self._scan_target(target, scan_ports)
+                cameras.extend(target_cameras)
+                if raw_output:
+                    raw_outputs.append(raw_output)
+                if on_progress:
+                    on_progress(list(cameras))
         except Exception as exc:
-            if docker_module and isinstance(exc, docker_module.errors.ContainerError):
-                stderr = self._decode_bytes(getattr(exc, "stderr", b""))
-                raise RuntimeError(stderr or str(exc)) from exc
-            if docker_module and isinstance(exc, docker_module.errors.DockerException):
-                raise RuntimeError(str(exc)) from exc
-            raise
-        finally:
-            if "container" in locals():
-                try:
-                    container.remove(force=True)
-                except Exception:
-                    logger.debug("Could not remove Cameradar container", exc_info=True)
+            logger.warning("Camera discovery failed: %s", exc)
+            message = str(exc)
+            return CameraDiscoveryResult(
+                errors=[
+                    CameraDiscoveryError(
+                        code="nmap_scan_failed",
+                        message="Camera discovery scan failed.",
+                        detail=message,
+                    )
+                ],
+                raw_output="\n".join(raw_outputs),
+                scan_duration_seconds=round(time.time() - start_time, 2),
+                target_subnet=", ".join(normalized_targets),
+                error=message,
+            )
 
-        return self._decode_bytes(output)
+        return CameraDiscoveryResult(
+            cameras=cameras,
+            raw_output="\n".join(raw_outputs),
+            scan_duration_seconds=round(time.time() - start_time, 2),
+            target_subnet=", ".join(normalized_targets),
+        )
 
-    def _build_command(self, target_path: str, output_path: str) -> List[str]:
-        return [
-            "--targets",
-            target_path,
-            "--output",
-            output_path,
-            *self.config.extra_args,
-        ]
+    def _scan_target(
+        self,
+        target: str,
+        ports: Sequence[int],
+    ) -> tuple[List[DiscoveredCamera], str]:
+        scanner = nmap.PortScanner(nmap_search_path=NMAP_SEARCH_PATH)
+        port_str = ",".join(str(port) for port in ports)
+        sweep_output = scanner.scan(hosts=target, arguments=PING_SWEEP_ARGUMENTS)
+        live_hosts = scanner.all_hosts()
+        logging.warning(f"Found hosts: {live_hosts}")
+        if not live_hosts:
+            return [], str(sweep_output)
 
-    def _parse_output(self, output_path: Path, raw_output: str) -> List[DiscoveredCamera]:
-        text = output_path.read_text() if output_path.exists() else raw_output
-        if not text.strip():
-            return []
+        port_scan_arguments = f"-p {port_str} --open -n -sT"
+        raw_output = scanner.scan(
+            hosts=" ".join(live_hosts),
+            arguments=port_scan_arguments,
+        )
+        port_scan_hosts = scanner.all_hosts()
+        logging.warning(f"Port scan hosts: {port_scan_hosts}")
 
         cameras: List[DiscoveredCamera] = []
-        for entry in self._extract_rtsp_entries(text):
-            camera = self._parse_rtsp_url(entry)
-            if camera is not None:
-                cameras.append(camera)
+        for host in port_scan_hosts:
+            host_entry = scanner[host]
+            found_ports = [
+                port
+                for port in ports
+                if host_entry.has_tcp(port) and host_entry["tcp"][port].get("state") == "open"
+            ]
+            logging.warning(f"Found ports for {host}: {found_ports}")
+            for port in ports:
+                if not host_entry.has_tcp(port):
+                    continue
 
-        if "rtsp://" in text.lower() and not cameras:
-            raise ValueError("RTSP entries were present but none were valid.")
+                tcp_entry = host_entry["tcp"][port]
+                if tcp_entry.get("state") != "open":
+                    continue
 
-        return cameras
+                if self.config.probe_rtsp:
+                    route, username, password = self._probe_rtsp(host, port)
+                else:
+                    route, username, password = None, None, None
 
-    def _extract_rtsp_entries(self, text: str) -> List[str]:
-        entries: List[str] = []
-        for line in text.splitlines():
-            stripped = line.strip()
-            if not stripped or stripped.startswith("#"):
-                continue
-            lower = stripped.lower()
-            if lower.startswith("rtsp://"):
-                entries.append(stripped)
-            elif "rtsp://" in lower:
-                entries.append(stripped[stripped.lower().index("rtsp://"):])
-        return entries
+                rtsp_url = self._build_rtsp_url(host, port, route, username, password)
+                cameras.append(
+                    DiscoveredCamera(
+                        host=host,
+                        port=port,
+                        rtsp_url=rtsp_url,
+                        path=route or "",
+                        username=username,
+                        password=password,
+                        raw_entry=rtsp_url,
+                        model=tcp_entry.get("product") or "Unknown",
+                        rtsp_route=route,
+                        is_accessible=route is not None,
+                    )
+                )
 
-    def _parse_rtsp_url(self, rtsp_url: str) -> Optional[DiscoveredCamera]:
-        parsed = urlparse(rtsp_url)
-        if parsed.scheme != "rtsp" or not parsed.hostname:
-            return None
+        return cameras, "\n".join([str(sweep_output), str(raw_output)])
 
-        try:
-            port = parsed.port or 554
-        except ValueError:
-            return None
+    def _probe_rtsp(
+        self,
+        host: str,
+        port: int,
+    ) -> tuple[Optional[str], Optional[str], Optional[str]]:
+        for route in self.config.rtsp_routes:
+            for username, password in self.config.credentials:
+                try:
+                    with socket.create_connection(
+                        (host, port),
+                        timeout=self.config.probe_timeout_seconds,
+                    ) as connection:
+                        request = (
+                            f"DESCRIBE rtsp://{username}:{password}@{host}:{port}{route} RTSP/1.0\r\n"
+                            "CSeq: 1\r\n"
+                            "User-Agent: PineQuest/1.0\r\n\r\n"
+                        )
+                        connection.sendall(request.encode("utf-8"))
+                        response = connection.recv(1024).decode(errors="ignore")
+                except OSError:
+                    continue
 
-        path = parsed.path or ""
-        if parsed.query:
-            path = f"{path}?{parsed.query}"
+                if "200 OK" in response:
+                    return route, username, password
 
-        return DiscoveredCamera(
-            host=parsed.hostname,
-            port=port,
-            rtsp_url=rtsp_url,
-            path=path,
-            username=parsed.username,
-            password=parsed.password,
-            raw_entry=rtsp_url,
-        )
+        return None, None, None
+
+    def _build_rtsp_url(
+        self,
+        host: str,
+        port: int,
+        route: Optional[str],
+        username: Optional[str],
+        password: Optional[str],
+    ) -> str:
+        if route is None:
+            return f"rtsp://{host}:{port}"
+
+        credentials = ""
+        if username is not None:
+            credentials = f"{username}:{password or ''}@"
+
+        return f"rtsp://{credentials}{host}:{port}{route}"
 
     def _normalize_targets(self, targets: str | Iterable[str]) -> List[str]:
         raw_targets = [targets] if isinstance(targets, str) else list(targets)
@@ -239,10 +282,3 @@ class CameraDiscoveryService(BaseCameraDiscoveryService):
                 continue
             normalized.append(cleaned)
         return normalized
-
-    def _decode_bytes(self, value: bytes | str | None) -> str:
-        if value is None:
-            return ""
-        if isinstance(value, str):
-            return value
-        return value.decode("utf-8", errors="replace")

@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-const DEFAULT_SUBNET = "192.168.1.0/24";
 const POLL_INTERVAL_MS = 2000;
+const MAX_POLL_MS = 310_000;
 
 interface DiscoveredCamera {
   ip: string;
@@ -35,6 +35,10 @@ type RawDiscoveryResult = Omit<Partial<DiscoveryResult>, "cameras" | "status"> &
   discovered_cameras?: RawDiscoveredCamera[];
   errors?: Array<{ message?: string; detail?: string }>;
 };
+
+interface SubnetResponse {
+  subnet: string;
+}
 
 function Spinner({ size = 18 }: { size?: number }) {
   return (
@@ -89,11 +93,11 @@ async function parseApiError(response: Response) {
   }
 }
 
-async function startDiscoveryScan() {
+async function startDiscoveryScan(subnet: string) {
   const response = await fetch("/api/cameras/discovery/start", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ targets: [DEFAULT_SUBNET] }),
+    body: JSON.stringify({ targets: [subnet] }),
   });
 
   if (!response.ok) {
@@ -101,14 +105,30 @@ async function startDiscoveryScan() {
   }
 }
 
-async function fetchDiscoveryResults(): Promise<DiscoveryResult> {
+async function fetchDiscoverySubnet(): Promise<string> {
+  const response = await fetch("/api/cameras/discovery/subnet", { cache: "no-store" });
+
+  if (!response.ok) {
+    throw new Error(await parseApiError(response));
+  }
+
+  const body = (await response.json()) as SubnetResponse;
+  return body.subnet;
+}
+
+function isRunningScanStatus(status: RawDiscoveryResult["status"] | undefined): boolean {
+  return status === "running";
+}
+
+async function fetchDiscoveryResults(): Promise<{ raw: RawDiscoveryResult; result: DiscoveryResult }> {
   const response = await fetch("/api/cameras/discovery/results", { cache: "no-store" });
 
   if (!response.ok) {
     throw new Error(await parseApiError(response));
   }
 
-  return normalizeDiscoveryResult((await response.json()) as RawDiscoveryResult);
+  const raw = (await response.json()) as RawDiscoveryResult;
+  return { raw, result: normalizeDiscoveryResult(raw) };
 }
 
 function normalizeDiscoveryResult(raw: RawDiscoveryResult): DiscoveryResult {
@@ -141,6 +161,7 @@ export default function CameraDiscoveryPage() {
   const [result, setResult] = useState<DiscoveryResult | null>(null);
   const [isStarting, setIsStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [subnet, setSubnet] = useState<string | null>(null);
 
   const isScanning = result?.status === "scanning";
   const scanError = error ?? result?.error ?? null;
@@ -153,12 +174,18 @@ export default function CameraDiscoveryPage() {
   }, [result?.cameras]);
 
   const loadResults = useCallback(async () => {
-    const nextResult = await fetchDiscoveryResults();
+    const { result: nextResult } = await fetchDiscoveryResults();
     setResult(nextResult);
     setError(nextResult.error);
+    return nextResult;
   }, []);
 
   const handleStartScan = useCallback(async () => {
+    if (!subnet) {
+      setError("Detecting local subnet. Try again in a moment.");
+      return;
+    }
+
     setIsStarting(true);
     setError(null);
     setResult({
@@ -169,7 +196,7 @@ export default function CameraDiscoveryPage() {
     });
 
     try {
-      await startDiscoveryScan();
+      await startDiscoveryScan(subnet);
       await loadResults();
     } catch (err) {
       setResult((current) => ({
@@ -182,25 +209,83 @@ export default function CameraDiscoveryPage() {
     } finally {
       setIsStarting(false);
     }
-  }, [loadResults]);
+  }, [loadResults, subnet]);
+
+  useEffect(() => {
+    fetchDiscoverySubnet()
+      .then((detectedSubnet) => {
+        setSubnet(detectedSubnet);
+      })
+      .catch((err) => {
+        setError(err instanceof Error ? err.message : "Failed to detect local network subnet.");
+      });
+  }, []);
 
   useEffect(() => {
     if (!isScanning) return;
 
-    const interval = window.setInterval(() => {
-      loadResults().catch((err) => {
+    let active = true;
+    let intervalId: number | undefined;
+    const pollDeadline = Date.now() + MAX_POLL_MS;
+
+    const stopPolling = () => {
+      if (intervalId !== undefined) {
+        window.clearInterval(intervalId);
+        intervalId = undefined;
+      }
+    };
+
+    const pollOnce = async () => {
+      if (!active) return;
+
+      try {
+        const { raw, result: nextResult } = await fetchDiscoveryResults();
+        if (!active) return;
+
+        setResult(nextResult);
+        setError(nextResult.error);
+
+        if (!isRunningScanStatus(raw.status)) {
+          stopPolling();
+          return;
+        }
+
+        if (Date.now() >= pollDeadline) {
+          const timeoutMessage = "Scan timed out waiting for results.";
+          setResult((current) => ({
+            status: "error",
+            scan_duration_seconds: current?.scan_duration_seconds ?? 0,
+            cameras: nextResult.cameras.length > 0 ? nextResult.cameras : current?.cameras ?? [],
+            error: timeoutMessage,
+          }));
+          setError(timeoutMessage);
+          stopPolling();
+        }
+      } catch (err) {
+        if (!active) return;
+
+        const message =
+          err instanceof Error ? err.message : "Failed to load camera discovery results.";
         setResult((current) => ({
           status: "error",
           scan_duration_seconds: current?.scan_duration_seconds ?? 0,
           cameras: current?.cameras ?? [],
-          error: err instanceof Error ? err.message : "Failed to load camera discovery results.",
+          error: message,
         }));
-        setError(err instanceof Error ? err.message : "Failed to load camera discovery results.");
-      });
+        setError(message);
+        stopPolling();
+      }
+    };
+
+    intervalId = window.setInterval(() => {
+      void pollOnce();
     }, POLL_INTERVAL_MS);
 
-    return () => window.clearInterval(interval);
-  }, [isScanning, loadResults]);
+    return () => {
+      active = false;
+      stopPolling();
+    };
+  }, [isScanning]);
 
   return (
     <main
@@ -233,14 +318,14 @@ export default function CameraDiscoveryPage() {
             <div style={{ color: "var(--muted)", fontSize: 12, marginBottom: 6 }}>Camera Discovery</div>
             <h1 style={{ fontSize: 24, lineHeight: 1.2, fontWeight: 700 }}>Network camera scan</h1>
             <p style={{ color: "var(--muted)", fontSize: 13, marginTop: 8 }}>
-              Scan {DEFAULT_SUBNET} for RTSP cameras and connection status.
+              Scan {subnet ?? "your local network"} for RTSP cameras and connection status.
             </p>
           </div>
 
           <button
             type="button"
             onClick={handleStartScan}
-            disabled={isStarting || isScanning}
+            disabled={isStarting || isScanning || !subnet}
             style={{
               display: "inline-flex",
               alignItems: "center",
@@ -250,15 +335,15 @@ export default function CameraDiscoveryPage() {
               height: 42,
               border: "1px solid var(--border)",
               borderRadius: 10,
-              background: isStarting || isScanning ? "var(--elevated)" : "var(--brand)",
+              background: isStarting || isScanning || !subnet ? "var(--elevated)" : "var(--brand)",
               color: "#fff",
-              cursor: isStarting || isScanning ? "not-allowed" : "pointer",
+              cursor: isStarting || isScanning || !subnet ? "not-allowed" : "pointer",
               fontSize: 13,
               fontWeight: 700,
-              opacity: isStarting || isScanning ? 0.7 : 1,
+              opacity: isStarting || isScanning || !subnet ? 0.7 : 1,
             }}
           >
-            {isStarting || isScanning ? <Spinner /> : null}
+            {isStarting || isScanning || !subnet ? <Spinner /> : null}
             Scan cameras
           </button>
         </header>
@@ -288,38 +373,24 @@ export default function CameraDiscoveryPage() {
             overflow: "hidden",
           }}
         >
-          {isScanning ? (
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: 10,
-                minHeight: 240,
-                color: "var(--muted)",
-                fontSize: 14,
-              }}
-            >
-              <Spinner size={22} />
-              Scanning network...
-            </div>
-          ) : sortedCameras.length === 0 ? (
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                minHeight: 240,
-                padding: 24,
-                color: "var(--muted)",
-                fontSize: 14,
-                textAlign: "center",
-              }}
-            >
-              No cameras found. Start a scan to discover cameras on your network.
-            </div>
-          ) : (
+          {sortedCameras.length > 0 ? (
             <div style={{ overflowX: "auto" }}>
+              {isScanning ? (
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10,
+                    padding: "12px 16px",
+                    borderBottom: "1px solid var(--border)",
+                    color: "var(--muted)",
+                    fontSize: 13,
+                  }}
+                >
+                  <Spinner size={16} />
+                  Scanning network... showing cameras as they are discovered.
+                </div>
+              ) : null}
               <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 620 }}>
                 <thead>
                   <tr style={{ color: "var(--faint)", fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase" }}>
@@ -367,7 +438,37 @@ export default function CameraDiscoveryPage() {
                 </tbody>
               </table>
             </div>
-          )}
+          ) : isScanning ? (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 10,
+                minHeight: 240,
+                color: "var(--muted)",
+                fontSize: 14,
+              }}
+            >
+              <Spinner size={22} />
+              Scanning network...
+            </div>
+          ) : sortedCameras.length === 0 ? (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                minHeight: 240,
+                padding: 24,
+                color: "var(--muted)",
+                fontSize: 14,
+                textAlign: "center",
+              }}
+            >
+              No cameras found. Start a scan to discover cameras on your network.
+            </div>
+          ) : null}
         </div>
       </section>
     </main>

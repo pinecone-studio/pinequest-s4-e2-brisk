@@ -18,6 +18,7 @@ export default function CameraCard({
   selected,
   onSelect,
   onStreamSettled,
+  onCredentialsRequest,
 }: {
   camera: CameraView;
   label: string;
@@ -25,6 +26,7 @@ export default function CameraCard({
   selected?: boolean;
   onSelect?: () => void;
   onStreamSettled: (state: "online" | "stream_unavailable") => void;
+  onCredentialsRequest?: () => void;
 }) {
   const [imageLoaded, setImageLoaded] = useState(false);
   const streamUrl = buildCameraStreamUrl(camera);
@@ -65,10 +67,18 @@ export default function CameraCard({
     };
   }, [camera.id, camera.stream_url, camera.enabled, streamState, onStreamSettled]);
 
+  const handleUnavailableClick = () => {
+    if (isUnavailable && onCredentialsRequest) {
+      onCredentialsRequest();
+      return;
+    }
+    onSelect?.();
+  };
+
   return (
     <article
       className="cam-tile"
-      onClick={onSelect}
+      onClick={handleUnavailableClick}
       style={{
         position: "relative",
         aspectRatio: "16 / 9",
@@ -76,7 +86,7 @@ export default function CameraCard({
         overflow: "hidden",
         borderRadius: 10,
         background: "#000",
-        cursor: onSelect ? "pointer" : "default",
+        cursor: onSelect || onCredentialsRequest ? "pointer" : "default",
         border: selected ? "2px solid var(--brand)" : "1px solid var(--border)",
         boxShadow: selected ? "0 0 0 3px var(--brand-soft)" : "none",
       }}
@@ -106,12 +116,16 @@ export default function CameraCard({
           ) : null}
         </>
       ) : (
-        <div className="cam-overlay-center">
-          {isDisabled ? "DISABLED" : isUnavailable ? "STREAM UNAVAILABLE" : "LOADING"}
+        <div className="cam-overlay-center" style={{ flexDirection: "column", gap: 6 }}>
+          <span>{isDisabled ? "DISABLED" : isUnavailable ? "STREAM UNAVAILABLE" : "LOADING"}</span>
+          {isUnavailable && onCredentialsRequest ? (
+            <span style={{ fontSize: 10, letterSpacing: "0.04em", color: "var(--faint)" }}>
+              Click to enter credentials
+            </span>
+          ) : null}
         </div>
       )}
 
-      {/* gradient + label overlay */}
       <div
         style={{
           position: "absolute",
@@ -156,8 +170,11 @@ export default function CameraCard({
 
       <button
         type="button"
-        title="Camera settings"
-        onClick={(e) => e.stopPropagation()}
+        title="Enter camera credentials"
+        onClick={(event) => {
+          event.stopPropagation();
+          onCredentialsRequest?.();
+        }}
         style={{
           position: "absolute",
           right: 10,
@@ -174,8 +191,8 @@ export default function CameraCard({
         }}
       >
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <circle cx="12" cy="12" r="3" />
-          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+          <rect x="3" y="11" width="18" height="11" rx="2" />
+          <path d="M7 11V7a5 5 0 0 1 10 0v4" />
         </svg>
       </button>
     </article>

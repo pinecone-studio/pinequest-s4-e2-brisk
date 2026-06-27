@@ -1,50 +1,58 @@
-import tempfile
 import unittest
-from pathlib import Path
+from unittest.mock import patch
 
 from app.services.camera_discovery import CameraDiscoveryConfig, CameraDiscoveryService
 
 
-class FakeContainers:
+class FakeHost:
+    def __init__(self, tcp):
+        self._tcp = tcp
+
+    def has_tcp(self, port):
+        return port in self._tcp
+
+    def __getitem__(self, key):
+        if key == "tcp":
+            return self._tcp
+        raise KeyError(key)
+
+
+class FakePortScanner:
     def __init__(self):
-        self.last_run = None
+        self.scans = []
+        self.hosts = {
+            "192.168.1.10": FakeHost({
+                554: {"state": "open", "product": "Hikvision"},
+                80: {"state": "closed", "product": "HTTP"},
+            }),
+            "192.168.1.11": FakeHost({
+                8554: {"state": "open"},
+            }),
+        }
 
-    def run(self, image, **kwargs):
-        self.last_run = {"image": image, **kwargs}
-        return FakeContainer(kwargs["volumes"])
+    def scan(self, hosts, arguments):
+        self.scans.append({"hosts": hosts, "arguments": arguments})
+        return {"scan": "completed"}
 
+    def all_hosts(self):
+        return list(self.hosts)
 
-class FakeContainer:
-    def __init__(self, volumes):
-        self.volumes = volumes
-        self.removed = False
-
-    def wait(self, timeout):
-        self.timeout = timeout
-        output_dir = next(iter(self.volumes.keys()))
-        Path(output_dir, "cameradar-results.m3u").write_text(
-            "#EXTM3U\n"
-            "rtsp://admin:secret@192.168.1.10:554/live.sdp\n"
-            "rtsp://192.168.1.11/stream1\n"
-        )
-        return {"StatusCode": 0}
-
-    def logs(self, stdout=True, stderr=True):
-        return b"scan completed"
-
-    def remove(self, force=True):
-        self.removed = True
+    def __getitem__(self, host):
+        return self.hosts[host]
 
 
-class FakeDockerClient:
-    def __init__(self):
-        self.containers = FakeContainers()
+class FailingPortScanner:
+    def scan(self, hosts, arguments):
+        raise RuntimeError("nmap unavailable")
 
 
 class CameraDiscoveryServiceTest(unittest.TestCase):
-    def test_discover_runs_cameradar_with_docker_sdk_and_parses_results(self):
-        docker_client = FakeDockerClient()
-        service = CameraDiscoveryService(CameraDiscoveryConfig(docker_client=docker_client))
+    @patch("app.services.camera_discovery.nmap.PortScanner")
+    def test_discover_runs_nmap_and_returns_discovered_cameras(self, port_scanner):
+        scanner = FakePortScanner()
+        port_scanner.return_value = scanner
+        service = CameraDiscoveryService(CameraDiscoveryConfig(probe_rtsp=True))
+        service._probe_rtsp = lambda host, port: ("/live.sdp", "admin", "admin")
 
         result = service.discover("192.168.1.0/24")
 
@@ -52,30 +60,23 @@ class CameraDiscoveryServiceTest(unittest.TestCase):
         self.assertEqual(len(result.cameras), 2)
         self.assertEqual(result.cameras[0].host, "192.168.1.10")
         self.assertEqual(result.cameras[0].username, "admin")
-        self.assertEqual(result.cameras[0].password, "secret")
-        self.assertEqual(result.cameras[1].port, 554)
-        self.assertEqual(
-            docker_client.containers.last_run["command"],
-            [
-                "--targets",
-                "/tmp/cameradar-output/cameradar-targets.txt",
-                "--output",
-                "/tmp/cameradar-output/cameradar-results.m3u",
-            ],
-        )
-        self.assertTrue(docker_client.containers.last_run["detach"])
-        self.assertEqual(docker_client.containers.last_run["network_mode"], "host")
+        self.assertEqual(result.cameras[0].password, "admin")
+        self.assertEqual(result.cameras[0].path, "/live.sdp")
+        self.assertTrue(result.cameras[0].is_accessible)
+        self.assertEqual(result.cameras[1].port, 8554)
+        self.assertEqual(scanner.scans[0]["hosts"], "192.168.1.0/24")
+        self.assertEqual(scanner.scans[0]["arguments"], "-sn -n -T5")
+        self.assertEqual(scanner.scans[1]["hosts"], "192.168.1.10 192.168.1.11")
+        self.assertEqual(scanner.scans[1]["arguments"], "-p 554,8554,80,8080 --open -n -sT")
 
-    def test_discover_returns_structured_error_for_docker_failure(self):
-        class FailingService(CameraDiscoveryService):
-            def _run_cameradar(self, output_dir):
-                raise RuntimeError("docker daemon unavailable")
-
-        result = FailingService().discover("192.168.1.0/24")
+    @patch("app.services.camera_discovery.nmap.PortScanner")
+    def test_discover_returns_structured_error_for_nmap_failure(self, port_scanner):
+        port_scanner.return_value = FailingPortScanner()
+        result = CameraDiscoveryService().discover("192.168.1.0/24")
 
         self.assertFalse(result.ok)
-        self.assertEqual(result.errors[0].code, "docker_execution_failed")
-        self.assertEqual(result.errors[0].detail, "docker daemon unavailable")
+        self.assertEqual(result.errors[0].code, "nmap_scan_failed")
+        self.assertEqual(result.errors[0].detail, "nmap unavailable")
 
     def test_discover_returns_structured_error_for_invalid_targets(self):
         result = CameraDiscoveryService().discover("")
@@ -83,14 +84,31 @@ class CameraDiscoveryServiceTest(unittest.TestCase):
         self.assertFalse(result.ok)
         self.assertEqual(result.errors[0].code, "invalid_targets")
 
-    def test_parse_output_fails_cleanly_for_malformed_rtsp_entries(self):
-        service = CameraDiscoveryService()
-        with tempfile.TemporaryDirectory() as output_dir:
-            output_path = Path(output_dir) / "result.m3u"
-            output_path.write_text("rtsp://camera.local:not-a-port/live\n")
+    def test_probe_rtsp_returns_route_and_credentials_for_successful_describe(self):
+        class FakeSocket:
+            def __enter__(self):
+                return self
 
-            with self.assertRaises(ValueError):
-                service._parse_output(output_path, "")
+            def __exit__(self, exc_type, exc, traceback):
+                return None
+
+            def sendall(self, data):
+                self.request = data
+
+            def recv(self, size):
+                return b"RTSP/1.0 200 OK\r\nCSeq: 1\r\n\r\n"
+
+        service = CameraDiscoveryService(CameraDiscoveryConfig(
+            rtsp_routes=["/live"],
+            credentials=[("admin", "admin")],
+        ))
+
+        with patch("app.services.camera_discovery.socket.create_connection", return_value=FakeSocket()):
+            route, username, password = service._probe_rtsp("192.168.1.10", 554)
+
+        self.assertEqual(route, "/live")
+        self.assertEqual(username, "admin")
+        self.assertEqual(password, "admin")
 
 
 if __name__ == "__main__":

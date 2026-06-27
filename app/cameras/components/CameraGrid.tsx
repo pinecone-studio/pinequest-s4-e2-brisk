@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import CameraCard from "./CameraCard";
 import type { CameraView } from "../lib/cameraTypes";
 
@@ -17,17 +17,22 @@ export default function CameraGrid({
   columns = 2,
   selectedId,
   onSelect,
+  onStreamFailed,
+  onCredentialsRequest,
 }: {
   cameras: CameraView[];
   columns?: number;
   selectedId?: string | null;
   onSelect?: (id: string) => void;
+  onStreamFailed?: (cameraId: string) => void;
+  onCredentialsRequest?: (cameraId: string) => void;
 }) {
   const loadableCameraIds = useMemo(
     () => cameras.filter((camera) => camera.enabled !== false).map((camera) => camera.id),
     [cameras],
   );
   const [streamStates, setStreamStates] = useState<Record<string, StreamLoadState>>({});
+  const streamUrlRef = useRef<Record<string, string>>({});
 
   useEffect(() => {
     setStreamStates((current) => {
@@ -38,6 +43,27 @@ export default function CameraGrid({
       return next;
     });
   }, [loadableCameraIds]);
+
+  useEffect(() => {
+    setStreamStates((current) => {
+      const next = { ...current };
+      let changed = false;
+
+      for (const camera of cameras) {
+        if (camera.enabled === false) continue;
+
+        const nextUrl = camera.stream_url ?? "";
+        const previousUrl = streamUrlRef.current[camera.id];
+        if (previousUrl === nextUrl) continue;
+
+        streamUrlRef.current[camera.id] = nextUrl;
+        next[camera.id] = "not_started";
+        changed = true;
+      }
+
+      return changed ? next : current;
+    });
+  }, [cameras]);
 
   useEffect(() => {
     if (loadableCameraIds.length === 0) return;
@@ -101,7 +127,13 @@ export default function CameraGrid({
               if (current[camera.id] === state) return current;
               return { ...current, [camera.id]: state };
             });
+            if (state === "stream_unavailable") {
+              onStreamFailed?.(camera.id);
+            }
           }}
+          onCredentialsRequest={
+            onCredentialsRequest ? () => onCredentialsRequest(camera.id) : undefined
+          }
         />
       ))}
     </div>

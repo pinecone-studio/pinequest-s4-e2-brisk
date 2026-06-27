@@ -78,9 +78,21 @@ class CameraDiscoveryScanManager:
             return self._state
 
     async def _run_scan(self, scan_id: str, targets: str | Iterable[str]) -> None:
+        loop = asyncio.get_running_loop()
+
+        def on_progress(cameras: List[DiscoveredCamera]) -> None:
+            asyncio.run_coroutine_threadsafe(
+                self._update_running_results(scan_id, cameras),
+                loop,
+            )
+
         try:
             result = await asyncio.wait_for(
-                asyncio.to_thread(self.discovery_service.discover, targets),
+                asyncio.to_thread(
+                    self.discovery_service.discover,
+                    targets,
+                    on_progress=on_progress,
+                ),
                 timeout=self.timeout_seconds,
             )
         except asyncio.TimeoutError:
@@ -110,7 +122,23 @@ class CameraDiscoveryScanManager:
             )
         else:
             status: ScanStatus = "failed" if result.errors else "completed"
+            logger.info(
+                "Camera discovery scan %s finished with status=%s cameras=%d",
+                scan_id,
+                status,
+                len(result.cameras),
+            )
             await self._finish(scan_id, status, result)
+
+    async def _update_running_results(
+        self,
+        scan_id: str,
+        cameras: List[DiscoveredCamera],
+    ) -> None:
+        async with self._lock:
+            if self._state.scan_id != scan_id or self._state.status != "running":
+                return
+            self._state.discovered_cameras = cameras
 
     async def _finish(
         self,

@@ -5,6 +5,8 @@ from __future__ import annotations
 import ipaddress
 import json
 import os
+import socket
+import subprocess
 from pathlib import Path
 from typing import List, Literal, Optional
 from fastapi import APIRouter
@@ -13,7 +15,7 @@ from pydantic import BaseModel, Field
 from app.services.camera_discovery_state import CameraDiscoveryScanManager
 
 router = APIRouter(prefix="/api/cameras/discovery", tags=["Camera Discovery"])
-scan_manager = CameraDiscoveryScanManager()
+scan_manager = CameraDiscoveryScanManager(timeout_seconds=300)
 
 
 class DiscoveryStartRequest(BaseModel):
@@ -27,6 +29,10 @@ class DiscoveryStartResponse(BaseModel):
     scan_id: str
     status: Literal["running"]
     message: str
+
+
+class DiscoverySubnetResponse(BaseModel):
+    subnet: str
 
 
 class DiscoveredCameraResponse(BaseModel):
@@ -63,7 +69,7 @@ async def start_camera_discovery(
     request: Optional[DiscoveryStartRequest] = None,
 ) -> DiscoveryStartResponse:
     """
-    Start a background Cameradar scan.
+    Start a background camera discovery scan.
 
     If another scan is already running, this returns the existing running scan
     instead of starting a duplicate. Targets may be supplied in the request body;
@@ -77,6 +83,18 @@ async def start_camera_discovery(
         status="running",
         message="Camera discovery scan is running.",
     )
+
+
+@router.get(
+    "/subnet",
+    response_model=DiscoverySubnetResponse,
+    summary="Get the local network subnet",
+)
+async def get_camera_discovery_subnet() -> DiscoverySubnetResponse:
+    """
+    Detect the local network subnet used for camera discovery.
+    """
+    return DiscoverySubnetResponse(subnet=_detect_local_subnet())
 
 
 @router.get(
@@ -126,3 +144,64 @@ def _targets_from_camera_config(path: str = "cameras.json") -> List[str]:
         targets.add(str(network))
 
     return sorted(targets)
+
+
+def _detect_local_subnet() -> str:
+    local_ip = _detect_local_ip()
+    network = ipaddress.ip_network(f"{local_ip}/24", strict=False)
+    return str(network)
+
+
+def _detect_local_ip() -> str:
+    local_ip = _detect_local_ip_from_default_route()
+    if local_ip:
+        return local_ip
+
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.connect(("8.8.8.8", 80))
+            local_ip = sock.getsockname()[0]
+    except OSError:
+        local_ip = socket.gethostbyname(socket.gethostname())
+
+    if local_ip.startswith("127."):
+        raise RuntimeError("Could not detect a non-loopback local IP address.")
+
+    return local_ip
+
+
+def _detect_local_ip_from_default_route() -> Optional[str]:
+    try:
+        route_output = subprocess.check_output(
+            ["route", "-n", "get", "default"],
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=2,
+        )
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        return None
+
+    interface = None
+    for line in route_output.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("interface:"):
+            interface = stripped.split(":", 1)[1].strip()
+            break
+
+    if not interface:
+        return None
+
+    try:
+        local_ip = subprocess.check_output(
+            ["ipconfig", "getifaddr", interface],
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=2,
+        ).strip()
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        return None
+
+    if local_ip and not local_ip.startswith("127."):
+        return local_ip
+
+    return None
