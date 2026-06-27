@@ -7,8 +7,8 @@ Quick prototype:
   python scripts/train_security_model.py --epochs 10 --imgsz 640
 
 Env vars (optional — defaults shown):
-  ROBOFLOW_SECURITY_WORKSPACE=roboflow-100
-  ROBOFLOW_SECURITY_PROJECT=violence-detection-oqjqy
+  ROBOFLOW_SECURITY_WORKSPACE=gowtham-p4vua
+  ROBOFLOW_SECURITY_PROJECT=violence-2apnk-1wrkr
   ROBOFLOW_SECURITY_VERSION=1
 """
 
@@ -30,8 +30,8 @@ DATASET_DIR = Path("models/security-dataset")
 OUTPUT_WEIGHTS = Path("models/security.pt")
 DATA_YAML = DATASET_DIR / "data.yaml"
 
-ROBOFLOW_WORKSPACE = os.getenv("ROBOFLOW_SECURITY_WORKSPACE", "roboflow-100")
-ROBOFLOW_PROJECT = os.getenv("ROBOFLOW_SECURITY_PROJECT", "violence-detection-oqjqy")
+ROBOFLOW_WORKSPACE = os.getenv("ROBOFLOW_SECURITY_WORKSPACE", "gowtham-p4vua")
+ROBOFLOW_PROJECT = os.getenv("ROBOFLOW_SECURITY_PROJECT", "violence-2apnk-1wrkr")
 ROBOFLOW_VERSION = int(os.getenv("ROBOFLOW_SECURITY_VERSION", "1"))
 
 
