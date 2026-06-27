@@ -41,6 +41,7 @@ _BOX_COLORS = {
 def _run_webcam(source: str) -> None:
     from app.detect_frame import detect_and_track
     from app.association import Associator
+    from app.abandonment import AbandonmentMachine
 
     raw = source.strip()
     cap_source = int(raw) if raw.isdigit() else raw
@@ -55,6 +56,8 @@ def _run_webcam(source: str) -> None:
     fps_display = 0.0
     frame_count = 0  # used to skip spurious waitKey events on first frame (macOS Cocoa)
     associator = Associator()
+    abandonment = AbandonmentMachine()
+    alert_until: float = 0.0  # show banner until this wall-clock time
 
     try:
         while True:
@@ -70,7 +73,12 @@ def _run_webcam(source: str) -> None:
                 logger.warning("detect_and_track error: %s", exc)
                 dets = []
 
+            now = time.time()
             associator.update(frame_count, dets)
+            events = abandonment.update(now, dets, associator.object_states)
+            for evt in events:
+                print(evt)
+                alert_until = now + 5.0
 
             # Build a map of person_id → current center for line drawing
             person_centers = {
@@ -106,6 +114,22 @@ def _run_webcam(source: str) -> None:
                                  (0, 255, 255), 2)
                     elif state and state.drop_location and not state.is_carried:
                         cv2.circle(frame, state.drop_location, 8, (0, 80, 255), -1)
+                        aban_state = abandonment.get_state(track_id)
+                        if aban_state:
+                            cv2.putText(
+                                frame, aban_state.value,
+                                (x1, y2 + 18),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 80, 255), 1, cv2.LINE_AA,
+                            )
+
+            # Alert banner — shown for 5 s after a littering event fires
+            if now < alert_until:
+                cv2.rectangle(frame, (0, 0), (frame.shape[1], 64), (0, 0, 180), -1)
+                cv2.putText(
+                    frame, "!! LITTERING DETECTED !!",
+                    (20, 46),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1.1, (255, 255, 255), 3, cv2.LINE_AA,
+                )
 
             fps_count += 1
             elapsed = time.perf_counter() - fps_start
