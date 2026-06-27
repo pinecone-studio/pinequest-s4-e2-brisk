@@ -39,7 +39,7 @@ _BOX_COLORS = {
 
 
 def _run_webcam(source: str) -> None:
-    from app.detect_frame import detect_frame
+    from app.detect_frame import detect_and_track
 
     raw = source.strip()
     cap_source = int(raw) if raw.isdigit() else raw
@@ -58,16 +58,18 @@ def _run_webcam(source: str) -> None:
         if not ret:
             break
 
-        dets = detect_frame(frame)
+        dets = detect_and_track(frame)
 
         for det in dets:
             cls = det["class"]
             x1, y1, x2, y2 = det["bbox"]
             conf = det["conf"]
+            track_id = det.get("track_id")
             color = _BOX_COLORS.get(cls, (255, 255, 255))
             cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+            label = f"{cls} {track_id}" if track_id is not None else f"{cls} {conf:.2f}"
             cv2.putText(
-                frame, f"{cls} {conf:.2f}",
+                frame, label,
                 (x1, max(y1 - 8, 12)),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2, cv2.LINE_AA,
             )

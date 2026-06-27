@@ -44,3 +44,40 @@ def detect_frame(frame: np.ndarray, conf_threshold: float = 0.3) -> List[Dict]:
         detections.append({"class": cls_name, "bbox": (x1, y1, x2, y2), "conf": conf})
 
     return detections
+
+
+def detect_and_track(frame: np.ndarray, conf_threshold: float = 0.3) -> List[Dict]:
+    """
+    Run inference + ByteTrack on a single BGR frame.
+
+    Returns a list of dicts: {class, bbox (x1,y1,x2,y2), conf, track_id}.
+    track_id is an int when the tracker has assigned one, or None on first appearance.
+    Filtered to _COCO_FILTER classes only.
+
+    Call with the same model instance across frames (guaranteed here via module-level
+    _model) so persist=True carries state between calls.
+    """
+    results = _model.track(
+        frame, persist=True, tracker="bytetrack.yaml",
+        verbose=False, device=_device,
+    )[0]
+    detections: List[Dict] = []
+    if results.boxes is None:
+        return detections
+
+    names = results.names
+    for box in results.boxes:
+        conf = float(box.conf[0])
+        cls_name = names[int(box.cls[0])]
+        if cls_name not in _COCO_FILTER or conf < conf_threshold:
+            continue
+        x1, y1, x2, y2 = (int(v) for v in box.xyxy[0])
+        track_id = int(box.id[0]) if box.id is not None else None
+        detections.append({
+            "class": cls_name,
+            "bbox": (x1, y1, x2, y2),
+            "conf": conf,
+            "track_id": track_id,
+        })
+
+    return detections
