@@ -39,7 +39,7 @@ _BOX_COLORS = {
 
 
 def _run_webcam(source: str) -> None:
-    from app.detect_frame import detect_frame
+    from app.detect_frame import detect_and_track
 
     raw = source.strip()
     cap_source = int(raw) if raw.isdigit() else raw
@@ -47,50 +47,69 @@ def _run_webcam(source: str) -> None:
     if not cap.isOpened():
         sys.exit(f"Cannot open source: {source}")
 
-    print(f"[COCO detector] source={source}  press q to quit")
+    print(f"[COCO detector] source={source}  press q or ESC to quit")
 
     fps_start = time.perf_counter()
     fps_count = 0
     fps_display = 0.0
+    frame_count = 0  # used to skip spurious waitKey events on first frame (macOS Cocoa)
 
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
+    try:
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
 
-        dets = detect_frame(frame)
+            frame_count += 1
 
-        for det in dets:
-            cls = det["class"]
-            x1, y1, x2, y2 = det["bbox"]
-            conf = det["conf"]
-            color = _BOX_COLORS.get(cls, (255, 255, 255))
-            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+            try:
+                dets = detect_and_track(frame)
+            except Exception as exc:
+                logger.warning("detect_and_track error: %s", exc)
+                dets = []
+
+            for det in dets:
+                cls = det["class"]
+                x1, y1, x2, y2 = det["bbox"]
+                conf = det["conf"]
+                track_id = det.get("track_id")
+                color = _BOX_COLORS.get(cls, (255, 255, 255))
+                cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+                label = f"{cls} {track_id}" if track_id is not None else f"{cls} {conf:.2f}"
+                cv2.putText(
+                    frame, label,
+                    (x1, max(y1 - 8, 12)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2, cv2.LINE_AA,
+                )
+
+            fps_count += 1
+            elapsed = time.perf_counter() - fps_start
+            if elapsed >= 1.0:
+                fps_display = fps_count / elapsed
+                fps_count = 0
+                fps_start = time.perf_counter()
+
             cv2.putText(
-                frame, f"{cls} {conf:.2f}",
-                (x1, max(y1 - 8, 12)),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2, cv2.LINE_AA,
+                frame, f"FPS: {fps_display:.1f}",
+                (10, 28),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2, cv2.LINE_AA,
             )
 
-        fps_count += 1
-        elapsed = time.perf_counter() - fps_start
-        if elapsed >= 1.0:
-            fps_display = fps_count / elapsed
-            fps_count = 0
-            fps_start = time.perf_counter()
+            cv2.imshow("Aegis AI — COCO detector", frame)
 
-        cv2.putText(
-            frame, f"FPS: {fps_display:.1f}",
-            (10, 28),
-            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2, cv2.LINE_AA,
-        )
+            # Skip the quit-key check on the first frame: macOS/Cocoa flushes
+            # pending system events through the first waitKey call, which can
+            # spuriously return ord('q') and immediately break the loop.
+            key = cv2.waitKey(1) & 0xFF
+            if frame_count > 1 and key in (ord("q"), ord("Q"), 27):
+                break
 
-        cv2.imshow("Aegis AI — COCO detector", frame)
-        if cv2.waitKey(1) & 0xFF == ord("q"):
-            break
+    except KeyboardInterrupt:
+        pass
+    finally:
+        cap.release()
+        cv2.destroyAllWindows()
 
-    cap.release()
-    cv2.destroyAllWindows()
     print(f"[COCO detector] stopped")
 
 
