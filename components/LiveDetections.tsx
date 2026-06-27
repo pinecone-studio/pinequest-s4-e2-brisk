@@ -6,13 +6,16 @@ import { ALERT_THRESHOLD } from "@/lib/modelConfig";
 
 const SMOKING_COLOR = "#ef4444";
 const LITTER_COLOR = "#f97316";
+const PERSON_COLOR = "#3b82f6";
 
 export interface LiveDetectionsHandle {
   update: (dets: Detection[]) => void;
 }
 
 function colorFor(label: string): string {
-  return label === "Smoking" ? SMOKING_COLOR : LITTER_COLOR;
+  if (label === "Smoking") return SMOKING_COLOR;
+  if (label === "Person") return PERSON_COLOR;
+  return LITTER_COLOR;
 }
 
 /** Build one row's static DOM once; dynamic bits are filled in on each update. */
@@ -78,7 +81,7 @@ function makeRow(): HTMLDivElement {
 
 function fillRow(row: HTMLElement, det: Detection): void {
   const color = colorFor(det.label);
-  const isAlert = det.confidence >= ALERT_THRESHOLD;
+  const isAlert = det.label !== "Person" && det.confidence >= ALERT_THRESHOLD;
   const pct = Math.round(det.confidence * 100);
 
   const dot = row.children[0] as HTMLElement;

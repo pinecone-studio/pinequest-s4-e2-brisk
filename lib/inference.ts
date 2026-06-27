@@ -7,6 +7,8 @@ import {
   SMOKING_CLASS_IDX,
   LITTER_THRESHOLD,
   COCO_THRESHOLD,
+  PERSON_THRESHOLD,
+  SHOW_PERSON_DETECTIONS,
   COCO_CLASS_NAMES,
   INPUT_SIZE,
 } from "./modelConfig";
@@ -226,6 +228,16 @@ export async function runInference(video: HTMLVideoElement): Promise<Detection[]
       meta,
     );
 
+    const personDetections: Detection[] = SHOW_PERSON_DETECTIONS
+      ? cocoDets
+          .filter((d) => d.label === "person" && d.confidence >= PERSON_THRESHOLD)
+          .map((d) => ({
+            label: "Person",
+            confidence: d.confidence,
+            box: d.box,
+          }))
+      : [];
+
     const cachedPersons = getCachedPersonBoxes();
     const cocoPersons = cocoDets
       .filter((d) => d.label === "person")
@@ -243,6 +255,7 @@ export async function runInference(video: HTMLVideoElement): Promise<Detection[]
     const filteredLitter = filterLitterByFaces(litterDets, faceBoxes);
 
     return [
+      ...personDetections,
       ...smokingResults.map((r) => ({
         label: "Smoking",
         confidence: r.compositeScore,

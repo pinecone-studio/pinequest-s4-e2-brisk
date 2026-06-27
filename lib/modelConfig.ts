@@ -17,6 +17,8 @@ export const SMOKING_VISUAL_FP_MAX = 0.48;
 export const LITTER_THRESHOLD = 0.4;
 export const ALERT_THRESHOLD = 0.55;
 export const COCO_THRESHOLD = 0.25;
+export const PERSON_THRESHOLD = 0.25;
+export const SHOW_PERSON_DETECTIONS = true;
 
 export const INPUT_SIZE = 640;
 export const SMOKING_CLASS_IDX = 1;

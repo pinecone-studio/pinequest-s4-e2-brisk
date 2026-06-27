@@ -1,9 +1,14 @@
 """
-Improve smoking detection: merge hard negatives, fine-tune, validate, export ONNX.
+Improve smoking detection: merge custom + hard-negative images, fine-tune, export ONNX.
 
-Run from repo root:
-  python scripts/improve_smoking_model.py
-  python scripts/improve_smoking_model.py --epochs 40 --skip-negatives
+Best-quality training (RTX 4070 / M-series):
+  python scripts/improve_smoking_model.py --epochs 50
+
+Workflow:
+  1. Drop smoking photos  -> models/custom-smoking/positive/
+  2. Drop non-smoking     -> models/custom-smoking/negative/
+  3. python scripts/add_custom_training_data.py --auto-label
+  4. python scripts/improve_smoking_model.py --epochs 50
 """
 
 import argparse
@@ -51,6 +56,14 @@ def _pick_device() -> str:
     return "cpu"
 
 
+def merge_custom_data(auto_label: bool) -> None:
+    script = ROOT / "scripts" / "add_custom_training_data.py"
+    cmd = [sys.executable, str(script)]
+    if auto_label:
+        cmd.append("--auto-label")
+    subprocess.check_call(cmd, cwd=str(ROOT))
+
+
 def merge_hard_negatives() -> int:
     neg_script = ROOT / "scripts" / "add_hard_negatives.py"
     if not HARD_NEGATIVES.is_dir():
@@ -87,20 +100,22 @@ def train(epochs: int, imgsz: int, batch: int) -> Path:
         project=str(ROOT / "models" / "runs"),
         name="smoking_improved",
         exist_ok=True,
-        patience=12,
+        patience=15,
         verbose=True,
-        # Smoke/cigarette is small — keep mosaic but moderate mixup
+        lr0=0.005,
+        lrf=0.01,
         mosaic=1.0,
-        mixup=0.08,
+        mixup=0.1,
         copy_paste=0.0,
         hsv_h=0.015,
-        hsv_s=0.65,
+        hsv_s=0.7,
         hsv_v=0.4,
-        degrees=12,
-        translate=0.12,
-        scale=0.55,
+        degrees=15,
+        translate=0.15,
+        scale=0.6,
         fliplr=0.5,
-        close_mosaic=10,
+        close_mosaic=15,
+        cache=True,
     )
 
     best = Path(results.save_dir) / "weights" / "best.pt"
@@ -127,7 +142,6 @@ def validate(weights: Path, data_yaml: Path) -> dict[str, float]:
 
 
 def maybe_promote(best: Path, metrics: dict[str, float]) -> Path:
-    """Keep previous weights if the new run regresses on test mAP50."""
     if not BACKUP_WEIGHTS.exists():
         return best
 
@@ -158,10 +172,12 @@ def export_onnx(weights: Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--epochs", type=int, default=35)
+    parser.add_argument("--epochs", type=int, default=50, help="Fine-tune epochs (default 50)")
     parser.add_argument("--imgsz", type=int, default=640)
     parser.add_argument("--batch", type=int, default=16)
-    parser.add_argument("--skip-negatives", action="store_true")
+    parser.add_argument("--skip-custom", action="store_true", help="Skip models/custom-smoking/ import")
+    parser.add_argument("--skip-negatives", action="store_true", help="Skip models/hard-negatives/ import")
+    parser.add_argument("--auto-label", action="store_true", help="Auto-label positive custom images")
     parser.add_argument("--skip-export", action="store_true")
     args = parser.parse_args()
 
@@ -169,6 +185,9 @@ def main() -> None:
     from scripts.train_model import download_dataset
 
     download_dataset()
+
+    if not args.skip_custom:
+        merge_custom_data(auto_label=args.auto_label)
 
     if not args.skip_negatives:
         merge_hard_negatives()

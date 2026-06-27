@@ -12,6 +12,7 @@ const LITTER_KIND: ViolationKind = { label: "Litter", type: "litter" };
 
 const SMOKING_COLOR = "#ef4444";
 const LITTER_COLOR = "#f97316";
+const PERSON_COLOR = "#3b82f6";
 
 const CAPTURE_COOLDOWN_MS = 8000;
 const THUMB_WIDTH = 200;
@@ -96,7 +97,9 @@ async function captureEvidence(
 }
 
 function getColor(label: string): string {
-  return label === "Smoking" ? SMOKING_COLOR : LITTER_COLOR;
+  if (label === "Smoking") return SMOKING_COLOR;
+  if (label === "Person") return PERSON_COLOR;
+  return LITTER_COLOR;
 }
 
 function drawBoxes(
@@ -113,7 +116,9 @@ function drawBoxes(
   for (const det of dets) {
     const [x1, y1, x2, y2] = det.box;
     const color = getColor(det.label);
-    const isAlert = det.confidence >= ALERT_THRESHOLD;
+    const isAlert =
+      det.label !== "Person" && det.confidence >= ALERT_THRESHOLD;
+    const lineWidth = det.label === "Person" ? 2 : isAlert ? 3 : 2;
 
     const px = x1 * displayW;
     const py = y1 * displayH;
@@ -121,7 +126,7 @@ function drawBoxes(
     const ph = (y2 - y1) * displayH;
 
     ctx.strokeStyle = color;
-    ctx.lineWidth = isAlert ? 3 : 2;
+    ctx.lineWidth = lineWidth;
     ctx.strokeRect(px, py, pw, ph);
 
     const label = `${det.label} ${Math.round(det.confidence * 100)}%`;
