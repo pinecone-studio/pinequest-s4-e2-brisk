@@ -12,7 +12,8 @@ Usage
 -----
     machine = AbandonmentMachine()
     ...
-    events = machine.update(time.time(), detections, associator.object_states)
+    events = machine.update(time.time(), detections, associator.object_states,
+                            associator.reown_map)
     for evt in events:
         print(evt)   # LitteringEvent
 
@@ -20,7 +21,15 @@ Safety rules baked in
 ---------------------
 - Objects that were NEVER owned (owner_id is None) never leave IDLE → no alert.
 - Re-pickup at any state resets to CARRIED and cancels all timers.
-- Object disappears before ALERTED → reset to IDLE (track lost).
+- Object disappears before ALERTED → reset to IDLE only after DISAPPEAR_TOLERANCE_SEC
+  of continuous absence (brief flicker does NOT reset the stationary/departure clock).
+
+Track-ID-change survival
+------------------------
+When ByteTrack re-assigns a new track_id to the same physical object (ghost reown),
+the Associator populates reown_map = {new_id: old_id}.  update() migrates the
+internal _Track entry from old_id to new_id before processing, so the stationary
+timer and departure clock survive without interruption.
 """
 
 from __future__ import annotations
@@ -32,8 +41,9 @@ from typing import Dict, List, Optional, Tuple
 
 # ── tuneable defaults ──────────────────────────────────────────────────────────
 T_STATIONARY: float = 3.0    # seconds object must stay still after separation
-T_DEPARTURE: float = 5.0     # seconds owner must be absent after object is still
-MOVEMENT_PX: int = 15        # pixel displacement that resets the stationary timer
+T_DEPARTURE: float  = 5.0    # seconds owner must be absent after object is still
+MOVEMENT_PX: int    = 15     # pixel displacement that resets the stationary timer
+DISAPPEAR_TOLERANCE_SEC: float = 3.0  # grace window: don't reset state on brief flicker
 
 
 # ── public types ──────────────────────────────────────────────────────────────
@@ -68,7 +78,7 @@ class _Track:
     __slots__ = (
         "state", "owner_id", "drop_location",
         "stationary_since", "last_center",
-        "owner_absent_since",
+        "owner_absent_since", "last_seen",
     )
 
     def __init__(self) -> None:
@@ -78,6 +88,7 @@ class _Track:
         self.stationary_since: Optional[float] = None
         self.last_center: Optional[Tuple[int, int]] = None
         self.owner_absent_since: Optional[float] = None
+        self.last_seen: Optional[float] = None  # wall-clock time of last visible frame
 
 
 # ── main class ────────────────────────────────────────────────────────────────
@@ -92,10 +103,12 @@ class AbandonmentMachine:
         t_stationary: float = T_STATIONARY,
         t_departure: float = T_DEPARTURE,
         movement_px: int = MOVEMENT_PX,
+        t_disappear: float = DISAPPEAR_TOLERANCE_SEC,
     ) -> None:
         self.t_stationary = t_stationary
         self.t_departure = t_departure
         self.movement_px = movement_px
+        self.t_disappear = t_disappear
         self._tracks: Dict[int, _Track] = {}
 
     def get_state(self, object_id: int) -> Optional[AbanState]:
@@ -106,13 +119,26 @@ class AbandonmentMachine:
         self,
         now: float,
         detections: List[dict],
-        assoc_states: dict,   # Associator.object_states — avoid circular import
+        assoc_states: dict,           # Associator.object_states
+        reown_map: Optional[Dict[int, int]] = None,  # Associator.reown_map
     ) -> List[LitteringEvent]:
         """
         Advance the state machine for one frame.
 
         Returns a (usually empty) list of newly-fired LitteringEvents.
         """
+        # ── migrate _Track entries for reowned tracks ──────────────────────────
+        # If the Associator matched a new track_id to a ghost (old track_id), carry
+        # over the existing _Track so timers don't reset on an ID change.
+        if reown_map:
+            for new_id, old_id in reown_map.items():
+                if old_id in self._tracks and new_id not in self._tracks:
+                    self._tracks[new_id] = self._tracks.pop(old_id)
+                    print(
+                        f"[ABAN] migrated track state: {old_id} → {new_id} "
+                        f"(state={self._tracks[new_id].state})"
+                    )
+
         visible_persons: set = {
             d["track_id"]
             for d in detections
@@ -137,7 +163,11 @@ class AbandonmentMachine:
             track = self._tracks.setdefault(oid, _Track())
             center = object_centers.get(oid)  # None → not visible this frame
 
-            # ── universal re-pickup guard ──────────────────────────────────
+            # Track last-seen time whenever the object is actually detected
+            if center is not None:
+                track.last_seen = now
+
+            # ── universal re-pickup guard ──────────────────────────────────────
             if assoc.is_carried:
                 if track.state != AbanState.ALERTED:
                     track.state = AbanState.CARRIED
@@ -147,7 +177,7 @@ class AbandonmentMachine:
                     track.owner_absent_since = None
                 continue
 
-            # ── per-state transitions ──────────────────────────────────────
+            # ── per-state transitions ──────────────────────────────────────────
 
             if track.state == AbanState.IDLE:
                 if assoc.owner_id is not None:
@@ -165,7 +195,10 @@ class AbandonmentMachine:
 
             elif track.state == AbanState.DROPPED:
                 if center is None:
-                    track.state = AbanState.IDLE
+                    # Tolerate brief detection gaps — only reset after sustained absence
+                    if track.last_seen is not None and now - track.last_seen > self.t_disappear:
+                        track.state = AbanState.IDLE
+                    # else: keep state and let the stationary timer keep running
                     continue
 
                 # Movement check: any frame with displacement > threshold resets timer
@@ -182,7 +215,9 @@ class AbandonmentMachine:
 
             elif track.state == AbanState.STATIONARY:
                 if center is None:
-                    track.state = AbanState.IDLE
+                    # Same tolerance: brief flicker doesn't cancel the departure clock
+                    if track.last_seen is not None and now - track.last_seen > self.t_disappear:
+                        track.state = AbanState.IDLE
                     continue
 
                 # Departure check: start/reset clock based on owner visibility

@@ -93,6 +93,7 @@ def push_violation(violation: Dict):
         return
     try:
         _violation_queue.put_nowait(violation)
+        logger.info("Violation enqueued for broadcast: type=%s id=%s", violation.get("type"), violation.get("id"))
     except asyncio.QueueFull:
         logger.warning("Violation queue full — dropping event")
 

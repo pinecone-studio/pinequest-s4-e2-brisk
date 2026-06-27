@@ -58,8 +58,8 @@ def get_stats_today() -> Dict:
             "SELECT COUNT(*) FROM violations WHERE type='smoking' AND created_at >= ?",
             (today,),
         ).fetchone()[0]
-        garbage = conn.execute(
-            "SELECT COUNT(*) FROM violations WHERE type='garbage' AND created_at >= ?",
+        littering = conn.execute(
+            "SELECT COUNT(*) FROM violations WHERE type='littering' AND created_at >= ?",
             (today,),
         ).fetchone()[0]
-    return {"total": total, "smoking": smoking, "garbage": garbage}
+    return {"total": total, "smoking": smoking, "littering": littering}

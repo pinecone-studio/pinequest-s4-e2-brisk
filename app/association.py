@@ -30,6 +30,15 @@ never fire.  Ghost records prevent this:
   landing location becomes the drop_location so the abandonment timers start
   immediately from landing.
 - The ghost is consumed on first match so it can never reown multiple tracks.
+- Debounce: if a ghost already exists near a disappearing track, its expiry and
+  position are refreshed instead of creating a duplicate (reduces log spam when
+  tracks flicker rapidly).
+
+reown_map
+---------
+After each update() call, Associator.reown_map holds {new_track_id: old_track_id}
+for every reown that happened this frame.  The AbandonmentMachine reads this to
+migrate its internal _Track state so timers survive ID changes.
 """
 
 import time as _time
@@ -68,7 +77,7 @@ class _GhostRecord:
     """Memory of a disappeared owned track, held for REOWN_WINDOW_SEC seconds."""
     __slots__ = (
         "class_name", "owner_id", "last_center",
-        "dropped_at", "drop_location", "expires_at",
+        "dropped_at", "drop_location", "expires_at", "old_track_id",
     )
 
     def __init__(
@@ -79,6 +88,7 @@ class _GhostRecord:
         dropped_at: Optional[int],
         drop_location: Optional[Tuple[int, int]],
         expires_at: float,
+        old_track_id: int,
     ) -> None:
         self.class_name = class_name
         self.owner_id = owner_id
@@ -86,6 +96,7 @@ class _GhostRecord:
         self.dropped_at = dropped_at
         self.drop_location = drop_location
         self.expires_at = expires_at
+        self.old_track_id = old_track_id  # track_id of the original disappeared track
 
 
 # ── main class ────────────────────────────────────────────────────────────────
@@ -105,10 +116,16 @@ class Associator:
         self._last_centers: Dict[int, Tuple[int, int]] = {}     # track_id → last bbox center
         self._prev_active_oids: set = set()                     # active object track_ids last frame
         self._ghosts: List[_GhostRecord] = []                   # recently disappeared owned tracks
+        # Populated each frame: {new_track_id: old_track_id} for every ghost reown this frame.
+        # Read by AbandonmentMachine to migrate timer state across ID changes.
+        self.reown_map: Dict[int, int] = {}
 
     def update(self, frame_idx: int, detections: List[dict]) -> None:
         """Advance state for one frame.  detections is the raw list from detect_and_track."""
         now = _time.time()
+
+        # Reset reown map for this frame
+        self.reown_map.clear()
 
         # ── 1. expire old ghosts ───────────────────────────────────────────────
         self._ghosts = [g for g in self._ghosts if g.expires_at > now]
@@ -134,18 +151,28 @@ class Associator:
             center = self._last_centers.get(oid)
             if cls is None or center is None:
                 continue
-            self._ghosts.append(_GhostRecord(
-                class_name=cls,
-                owner_id=state.owner_id,
-                last_center=center,
-                dropped_at=state.dropped_at,
-                drop_location=state.drop_location,
-                expires_at=now + REOWN_WINDOW_SEC,
-            ))
-            print(
-                f"[ASSOC] ghost created: track {oid} ({cls}) owned by {state.owner_id} "
-                f"last_pos={center} expires_in={REOWN_WINDOW_SEC:.0f}s"
-            )
+
+            # Debounce: if a live ghost of the same class already sits near this
+            # position, just refresh it rather than creating a duplicate entry.
+            existing = _find_matching_ghost(self._ghosts, cls, center, now)
+            if existing is not None:
+                existing.last_center = center
+                existing.expires_at = now + REOWN_WINDOW_SEC
+                # Keep existing.old_track_id so the migration chain stays intact
+            else:
+                self._ghosts.append(_GhostRecord(
+                    class_name=cls,
+                    owner_id=state.owner_id,
+                    last_center=center,
+                    dropped_at=state.dropped_at,
+                    drop_location=state.drop_location,
+                    expires_at=now + REOWN_WINDOW_SEC,
+                    old_track_id=oid,
+                ))
+                print(
+                    f"[ASSOC] ghost created: track {oid} ({cls}) owned by {state.owner_id} "
+                    f"last_pos={center} expires_in={REOWN_WINDOW_SEC:.0f}s"
+                )
 
         self._prev_active_oids = current_oids
 
@@ -179,11 +206,13 @@ class Associator:
                         state.drop_location = (cx, cy)
                         state.dropped_at = frame_idx
                     state.is_carried = False
+                    # Record mapping so abandonment machine can migrate its _Track entry
+                    self.reown_map[oid] = ghost.old_track_id
                     self._ghosts.remove(ghost)
                     print(
                         f"[ASSOC] reown: new track {oid} ({obj['class']}) "
                         f"← owner {ghost.owner_id}  dist={dist}px  "
-                        f"drop={state.drop_location}"
+                        f"drop={state.drop_location}  (was track {ghost.old_track_id})"
                     )
 
             overlapping = _overlapping_person(bbox, persons)
