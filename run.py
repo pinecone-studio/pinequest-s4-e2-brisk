@@ -39,7 +39,7 @@ _BOX_COLORS = {
 
 
 def _run_webcam(source: str) -> None:
-    from app.detect_frame import detect_and_track
+    from app.detect_frame import detect_and_track, diag_raw_detections, CONF_OBJECT
     from app.association import Associator
     from app.abandonment import AbandonmentMachine
 
@@ -66,12 +66,34 @@ def _run_webcam(source: str) -> None:
                 break
 
             frame_count += 1
+            _frame_t0 = time.perf_counter()
 
             try:
                 dets = detect_and_track(frame)
             except Exception as exc:
                 logger.warning("detect_and_track error: %s", exc)
                 dets = []
+
+            _frame_ms = (time.perf_counter() - _frame_t0) * 1000
+            _frame_fps = 1000.0 / _frame_ms if _frame_ms > 0 else 0.0
+
+            # ── DIAGNOSTIC ─────────────────────────────────────────────────────
+            _raw_total, _raw_bottle_confs = diag_raw_detections(frame)
+            _survived_bottles = [d for d in dets if d["class"] == "bottle"]
+            _bottle_survived = len(_survived_bottles) > 0
+            _bottle_tid = _survived_bottles[0].get("track_id") if _survived_bottles else None
+            _bottle_conf_str = (
+                ", ".join(f"{c:.3f}" for c in _raw_bottle_confs)
+                if _raw_bottle_confs else "none"
+            )
+            print(
+                f"[DIAG] frame={frame_count:>5}  raw_boxes={_raw_total:>3}"
+                f"  bottle_raw_confs=[{_bottle_conf_str}]"
+                f"  survived(>{CONF_OBJECT})={'YES' if _bottle_survived else 'NO '}"
+                f"  track_id={_bottle_tid}"
+                f"  fps={_frame_fps:.1f}"
+            )
+            # ── END DIAGNOSTIC ──────────────────────────────────────────────────
 
             now = time.time()
             associator.update(frame_count, dets)
