@@ -43,7 +43,7 @@ function nms(dets: Detection[], iouThreshold = 0.45): Detection[] {
 }
 
 /**
- * Decode YOLOv8 output tensor (shape [1, 4+numClasses, numAnchors]) into detections.
+ * Decode YOLO output tensor (shape [1, 4+numClasses, numAnchors]) into detections.
  * Box coords are in absolute pixels relative to INPUT_SIZE (640x640).
  */
 export function decodeYolo(

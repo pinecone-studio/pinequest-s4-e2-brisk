@@ -41,19 +41,27 @@ def _fix_data_yaml(yaml_path: Path) -> Path:
     return fixed.resolve()
 
 
+def _count_images(split: str) -> int:
+    images_dir = DATASET_DIR / split / "images"
+    if not images_dir.exists():
+        return 0
+    exts = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
+    return sum(1 for p in images_dir.iterdir() if p.suffix.lower() in exts)
+
+
 def download_dataset():
     api_key = os.getenv("ROBOFLOW_API_KEY")
     if not api_key:
         sys.exit("ROBOFLOW_API_KEY not set in .env")
 
-    if DATASET_DIR.exists():
-        print(f"Dataset already at {DATASET_DIR}, skipping download.")
+    if _count_images("train") > 0:
+        print(f"Dataset already at {DATASET_DIR} ({_count_images('train')} train images), skipping download.")
         return
 
     print("Downloading smoking dataset from Roboflow…")
     rf = Roboflow(api_key=api_key)
     version = rf.workspace("timmy-ji8jf").project("smoking-bjzv1").version(4)
-    version.download("yolov8", location=str(DATASET_DIR))
+    version.download("yolov11", location=str(DATASET_DIR))
     print("Download complete.")
 
 

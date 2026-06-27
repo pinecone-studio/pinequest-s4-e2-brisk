@@ -79,7 +79,7 @@ def download_dataset(force: bool = False):
         .project(ROBOFLOW_PROJECT)
         .version(ROBOFLOW_VERSION)
     )
-    version.download("yolov8", location=str(DATASET_DIR))
+    version.download("yolov11", location=str(DATASET_DIR))
     print("Download complete.")
 
 

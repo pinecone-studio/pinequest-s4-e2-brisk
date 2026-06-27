@@ -45,7 +45,7 @@ def download_dataset(force: bool = False) -> None:
     )
     rf = Roboflow(api_key=api_key)
     version = rf.workspace(ROBOFLOW_WORKSPACE).project(ROBOFLOW_PROJECT).version(ROBOFLOW_VERSION)
-    version.download("yolov8", location=str(DATASET_DIR), overwrite=True)
+    version.download("yolov11", location=str(DATASET_DIR), overwrite=True)
     print(f"Done. Dataset saved to {DATASET_DIR.resolve()}")
 
 

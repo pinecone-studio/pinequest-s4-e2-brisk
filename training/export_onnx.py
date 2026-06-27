@@ -1,5 +1,5 @@
 """
-Export a YOLOv8 .pt file to ONNX format suitable for onnxruntime-web.
+Export a YOLO11 .pt file to ONNX format suitable for onnxruntime-web.
 
 Usage:
     python training/export_onnx.py --weights <path>.pt --output <path>.onnx
@@ -59,7 +59,7 @@ def export(weights: Path, output: Path) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Export YOLOv8 .pt to ONNX for onnxruntime-web")
+    parser = argparse.ArgumentParser(description="Export YOLO11 .pt to ONNX for onnxruntime-web")
     parser.add_argument("--weights", required=True, type=Path, help="Path to .pt checkpoint")
     parser.add_argument("--output",  required=True, type=Path, help="Destination .onnx path")
     args = parser.parse_args()

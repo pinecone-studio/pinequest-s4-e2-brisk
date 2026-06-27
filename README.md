@@ -1,6 +1,6 @@
 # Pinequest — Smoking Detection System
 
-AI-powered smoking detection for IP camera networks. Uses YOLOv8 to detect smoking in real-time video streams, fires alerts after a configurable number of consecutive positive frames, and surfaces violations in a live web dashboard.
+AI-powered smoking and litter detection. Uses YOLO11 to detect violations in real-time video streams and in the browser demo.
 
 ---
 
@@ -99,7 +99,7 @@ app/
   api.py          — FastAPI routes + WebSocket broadcast
   cameras.py      — RTSP stream management
   database.py     — SQLite violation log
-  detector.py     — YOLOv8 inference + VideoProcessor
+  detector.py     — YOLO11 inference + VideoProcessor
   reporter.py     — Temporal windowing + violation writer (live mode)
   templates/      — Dashboard HTML
   static/         — CSS + JS
