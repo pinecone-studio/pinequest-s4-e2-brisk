@@ -8,11 +8,13 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 import app.cameras as cameras_mod
+from app.camera_discovery_api import router as camera_discovery_router
 from app.database import get_violations, get_stats_today
 
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Aegis")
+app.include_router(camera_discovery_router)
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 Path("evidence").mkdir(exist_ok=True)
 app.mount("/evidence", StaticFiles(directory="evidence"), name="evidence")
