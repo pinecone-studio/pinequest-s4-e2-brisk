@@ -121,7 +121,14 @@ export function analyzeMouthRegion(
       }
 
       if (r > 185 && g > 175 && b > 160 && sat < 0.2) {
-        uniformLight++;
+        const graySmoke =
+          sat < 0.35 &&
+          max > 60 &&
+          max < 220 &&
+          Math.abs(r - g) < 35 &&
+          Math.abs(g - b) < 35 &&
+          !isPaperLikePixel(r, g, b);
+        if (!graySmoke) uniformLight++;
       }
 
       if (isPalePixel(r, g, b)) {
@@ -195,15 +202,14 @@ export function isVisualFalsePositive(stats: MouthRegionStats): boolean {
   }
 
   const noEmber = stats.emberRatio < 0.018;
+  const heavySmoke = stats.smokeLikeRatio > 0.14;
 
   // Hands covering face — mostly skin in mouth area, no ember/smoke.
   if (noEmber && stats.skinCoverRatio > 0.42 && stats.smokeLikeRatio < 0.16) return true;
 
-  // Rolled white paper concentrated at lips.
-  if (noEmber && stats.centerPaleRatio > 0.045) return true;
-
-  // Uniform white toy / large pale object in mouth.
-  if (noEmber && stats.uniformLightRatio > 0.1) return true;
+  // White paper / toy — not a gray smoke plume.
+  if (noEmber && !heavySmoke && stats.centerPaleRatio > 0.045) return true;
+  if (noEmber && !heavySmoke && stats.uniformLightRatio > 0.1) return true;
 
   return false;
 }
@@ -218,15 +224,21 @@ export function hasRealSmokingEvidence(
 ): boolean {
   if (!stats) return false;
 
-  if (stats.centerPaleRatio > 0.05 && stats.emberRatio < 0.015) return false;
-  if (stats.uniformLightRatio > 0.12 && stats.emberRatio < 0.015) return false;
+  if (stats.centerPaleRatio > 0.05 && stats.emberRatio < 0.015 && stats.smokeLikeRatio < 0.12) {
+    return false;
+  }
+  if (stats.uniformLightRatio > 0.12 && stats.emberRatio < 0.015 && stats.smokeLikeRatio < 0.12) {
+    return false;
+  }
   if (stats.skinCoverRatio > 0.45 && stats.emberRatio < 0.015 && stats.smokeLikeRatio < 0.14) {
     return false;
   }
 
   if (stats.emberRatio > 0.015) return true;
 
-  if (stats.smokeLikeRatio > 0.12 && stats.centerPaleRatio < 0.06 && stats.skinCoverRatio < 0.5) {
+  if (stats.smokeLikeRatio > 0.14) return true;
+
+  if (stats.smokeLikeRatio > 0.1 && stats.centerPaleRatio < 0.06 && stats.skinCoverRatio < 0.5) {
     return true;
   }
 
@@ -245,7 +257,12 @@ export function hasMouthSmokingBox(
   const mouth: Box = [px1 + pw * 0.15, py1 + ph * 0.05, px2 - pw * 0.15, py1 + ph * 0.35];
 
   return smokingDets.some((det) => {
-    if (det.label !== "Smoking" || det.confidence < minConfidence) return false;
+    if (
+      (det.label !== "Cigarette" && det.label !== "Vape") ||
+      det.confidence < minConfidence
+    ) {
+      return false;
+    }
     const boxArea = (det.box[2] - det.box[0]) * (det.box[3] - det.box[1]);
     if (boxArea > 0.1) return false;
     return coverageRatio(mouth, det.box) > 0.1;

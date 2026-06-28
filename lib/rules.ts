@@ -6,6 +6,9 @@ import {
   SMOKING_MOUTH_BOX_MIN,
   CIGARETTE_BOX_MAX_AREA,
   CIGARETTE_BOX_MIN_AREA,
+  VAPE_BOX_MAX_AREA,
+  SMOKE_PLUME_MAX_AREA,
+  SMOKING_THRESHOLD,
 } from "./modelConfig";
 import { hasRealSmokingEvidence } from "./smokingVision";
 
@@ -20,8 +23,15 @@ export interface SmokingSignals {
 export interface PersonResult {
   personBox: Box;
   cigaretteBox: Box;
+  productLabel: SmokingProductLabel;
   compositeScore: number;
   signals: SmokingSignals;
+}
+
+export type SmokingProductLabel = "Cigarette" | "Vape";
+
+export function isSmokingProductLabel(label: string): label is SmokingProductLabel {
+  return label === "Cigarette" || label === "Vape";
 }
 
 export interface CompositeDetections {
@@ -40,7 +50,7 @@ export interface MouthAnalysis {
 
 const MAX_LITTER_BOX_AREA = 0.5;
 const FACE_FRACTION = 0.25;
-const SMOKING_CLASS = "Smoking";
+const SMOKING_PRODUCTS = new Set<SmokingProductLabel>(["Cigarette", "Vape"]);
 
 type Box = [number, number, number, number];
 
@@ -177,7 +187,16 @@ function isCigaretteSizedBox(box: Box): boolean {
   return area >= CIGARETTE_BOX_MIN_AREA && area <= CIGARETTE_BOX_MAX_AREA;
 }
 
-/** Best small smoking-model box on/near mouth or hand while person holds cigarette. */
+function isVapeSizedBox(box: Box): boolean {
+  const area = boxArea(box);
+  return area >= CIGARETTE_BOX_MIN_AREA && area <= VAPE_BOX_MAX_AREA;
+}
+
+function isProductSizedBox(box: Box, label: SmokingProductLabel): boolean {
+  return label === "Vape" ? isVapeSizedBox(box) : isCigaretteSizedBox(box);
+}
+
+/** Best small cigarette-model box on/near mouth or hand. */
 function pickCigaretteBox(personBox: Box, smokingDets: Detection[]): Box | null {
   const [px1, py1, px2, py2] = personBox;
   const pw = px2 - px1;
@@ -188,7 +207,7 @@ function pickCigaretteBox(personBox: Box, smokingDets: Detection[]): Box | null 
   let best: { box: Box; score: number } | null = null;
 
   for (const det of smokingDets) {
-    if (det.label !== SMOKING_CLASS) continue;
+    if (det.label !== "Cigarette") continue;
     if (det.confidence < SMOKING_MOUTH_BOX_MIN) continue;
     if (!isCigaretteSizedBox(det.box)) continue;
     if (coverageRatio(personBox, det.box) < 0.12) continue;
@@ -204,6 +223,75 @@ function pickCigaretteBox(personBox: Box, smokingDets: Detection[]): Box | null 
   return best?.box ?? null;
 }
 
+/** Vape device box on/near mouth or hand. */
+function pickVapeBox(personBox: Box, smokingDets: Detection[]): Box | null {
+  const [px1, py1, px2, py2] = personBox;
+  const pw = px2 - px1;
+  const ph = py2 - py1;
+  const mouth: Box = [px1 + pw * 0.08, py1 + ph * 0.02, px2 - pw * 0.08, py1 + ph * 0.48];
+  const holdZone: Box = [px1, py1 + ph * 0.15, px2, py2];
+
+  let best: { box: Box; score: number } | null = null;
+
+  for (const det of smokingDets) {
+    if (det.label !== "Vape") continue;
+    if (det.confidence < SMOKING_MOUTH_BOX_MIN) continue;
+    if (!isVapeSizedBox(det.box)) continue;
+    if (coverageRatio(personBox, det.box) < 0.1) continue;
+
+    const nearMouth = coverageRatio(mouth, det.box) > 0.12;
+    const inHand = coverageRatio(holdZone, det.box) > 0.1;
+    if (!nearMouth && !inHand) continue;
+
+    const score = det.confidence + (nearMouth ? 0.05 : 0);
+    if (!best || score > best.score) best = { box: det.box, score };
+  }
+
+  return best?.box ?? null;
+}
+
+/** Cigarette/vape box, or smoke-plume box when gray smoke pixels are visible. */
+function pickSmokingDisplayBox(
+  personBox: Box,
+  smokingDets: Detection[],
+  mouthStats: MouthAnalysis | null,
+): { box: Box; label: SmokingProductLabel } | null {
+  const cigarette = pickCigaretteBox(personBox, smokingDets);
+  if (cigarette) return { box: cigarette, label: "Cigarette" };
+
+  const vape = pickVapeBox(personBox, smokingDets);
+  if (vape) return { box: vape, label: "Vape" };
+
+  const smokeLike = mouthStats?.smokeLikeRatio ?? 0;
+  if (smokeLike < 0.12) return null;
+
+  const [px1, py1, px2, py2] = personBox;
+  const pw = px2 - px1;
+  const ph = py2 - py1;
+  const plumeRegion: Box = [px1 + pw * 0.08, py1 + ph * 0.02, px2 - pw * 0.08, py1 + ph * 0.48];
+
+  let best: { box: Box; label: SmokingProductLabel; score: number } | null = null;
+  for (const det of smokingDets) {
+    if (!SMOKING_PRODUCTS.has(det.label as SmokingProductLabel)) continue;
+    if (det.confidence < SMOKING_THRESHOLD) continue;
+    const area = boxArea(det.box);
+    if (area > SMOKE_PLUME_MAX_AREA || area < CIGARETTE_BOX_MIN_AREA) continue;
+    if (coverageRatio(plumeRegion, det.box) < 0.08) continue;
+    if (!best || det.confidence > best.score) {
+      best = { box: det.box, label: det.label as SmokingProductLabel, score: det.confidence };
+    }
+  }
+  if (best) return { box: best.box, label: best.label };
+
+  if (smokeLike > 0.16) {
+    const vapeHint = smokingDets.some(
+      (d) => d.label === "Vape" && d.confidence >= SMOKING_THRESHOLD * 0.85,
+    );
+    return { box: plumeRegion, label: vapeHint ? "Vape" : "Cigarette" };
+  }
+  return null;
+}
+
 function mouthSmokingBox(
   personBox: Box,
   smokingDets: Detection[],
@@ -216,7 +304,7 @@ function mouthSmokingBox(
   let best = 0;
   let maxBoxArea = 0;
   for (const det of smokingDets) {
-    if (det.label !== SMOKING_CLASS) continue;
+    if (!SMOKING_PRODUCTS.has(det.label as SmokingProductLabel)) continue;
     if (det.confidence < SMOKING_MOUTH_BOX_MIN) continue;
     const area = boxArea(det.box);
     if (area > 0.15) continue;
@@ -233,25 +321,40 @@ function scorePersonSmoking(
   smokingDets: Detection[],
   mouthStats: MouthAnalysis | null,
 ): PersonResult | null {
-  const cigaretteBox = pickCigaretteBox(personBox, smokingDets);
-  if (!cigaretteBox) return null;
+  const mouthStatsEarly = mouthStats;
+  const display = pickSmokingDisplayBox(personBox, smokingDets, mouthStatsEarly);
+  if (!display) return null;
+
+  const { box: displayBox, label: productLabel } = display;
+  const isVape = productLabel === "Vape";
 
   let smokingModelScore = 0;
   for (const det of smokingDets) {
-    if (det.label !== SMOKING_CLASS) continue;
-    if (det.confidence < SMOKING_MODEL_MIN) continue;
-    if (iouBox(det.box, cigaretteBox) > 0.25) {
+    if (det.label !== productLabel) continue;
+    if (det.confidence < SMOKING_THRESHOLD) continue;
+    if (iouBox(det.box, displayBox) > 0.12 || coverageRatio(displayBox, det.box) > 0.15) {
       smokingModelScore = Math.max(smokingModelScore, det.confidence);
     }
   }
 
-  if (smokingModelScore < SMOKING_MODEL_MIN) return null;
+  const smokeLikeRatio = mouthStats?.smokeLikeRatio ?? 0;
+  if (smokingModelScore < SMOKING_MODEL_MIN && smokeLikeRatio < 0.16) return null;
+  if (smokingModelScore < SMOKING_THRESHOLD && smokeLikeRatio > 0.16) {
+    smokingModelScore = Math.min(0.55, 0.35 + smokeLikeRatio * 0.5);
+  }
 
   if (mouthStats?.isFalsePositive) return null;
 
   const mouthBox = mouthSmokingBox(personBox, smokingDets);
   const emberRatio = mouthStats?.emberRatio ?? 0;
-  if (mouthBox.maxBoxArea > 0.07 && emberRatio < 0.015) return null;
+  if (
+    !isVape &&
+    mouthBox.maxBoxArea > 0.07 &&
+    emberRatio < 0.015 &&
+    smokeLikeRatio < 0.14
+  ) {
+    return null;
+  }
 
   const mouthPixels = mouthStats
     ? {
@@ -269,26 +372,27 @@ function scorePersonSmoking(
   if (!hasRealSmokingEvidence(mouthPixels, smokingModelScore)) return null;
 
   let score = smokingModelScore;
-  const smokeLikeRatio = mouthStats?.smokeLikeRatio ?? 0;
 
   if (mouthBox.found && emberRatio > 0.012) {
     score = Math.min(1, score + mouthBox.score * 0.15);
   }
 
-  if (smokeLikeRatio > 0.1 && emberRatio > 0.01) {
-    score = Math.min(1, score + Math.min(0.1, smokeLikeRatio * 0.2));
+  if (smokeLikeRatio > 0.12) {
+    score = Math.min(1, score + Math.min(0.28, smokeLikeRatio * 0.45));
   }
   if (emberRatio > 0.015) {
     score = Math.min(1, score + Math.min(0.12, emberRatio * 3));
   }
 
   if (score < SMOKING_COMPOSITE_THRESHOLD && smokingModelScore < SMOKING_HIGH_CONFIDENCE) {
-    return null;
+    if (smokeLikeRatio < 0.16) return null;
+    score = Math.max(score, SMOKING_COMPOSITE_THRESHOLD);
   }
 
   return {
     personBox,
-    cigaretteBox,
+    cigaretteBox: displayBox,
+    productLabel,
     compositeScore: Math.min(1, score),
     signals: {
       hasHandheldObject: false,
@@ -344,10 +448,10 @@ export function computeCompositeDetections(
   }
 
   for (const det of smokingDets) {
-    if (det.label !== SMOKING_CLASS || det.confidence < SMOKING_MODEL_MIN) continue;
+    if (!isSmokingProductLabel(det.label) || det.confidence < SMOKING_MODEL_MIN) continue;
     if (smokingMatchedPerson(det.box, uniquePersons)) continue;
     if (det.confidence < SMOKING_HIGH_CONFIDENCE) continue;
-    if (!isCigaretteSizedBox(det.box)) continue;
+    if (!isProductSizedBox(det.box, det.label)) continue;
 
     const analysisBox = expandBox(det.box, 6);
     const mouthStats = analyzeMouth?.(analysisBox) ?? null;
@@ -371,6 +475,7 @@ export function computeCompositeDetections(
     smokingResults.push({
       personBox: det.box,
       cigaretteBox: det.box,
+      productLabel: det.label,
       compositeScore: det.confidence,
       signals: {
         hasHandheldObject: false,

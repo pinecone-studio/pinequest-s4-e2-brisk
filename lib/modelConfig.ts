@@ -15,6 +15,11 @@ export const SMOKING_MOUTH_BOX_MIN = 0.28;
 /** Normalized area bounds for a cigarette/handheld smoking box. */
 export const CIGARETTE_BOX_MAX_AREA = 0.065;
 export const CIGARETTE_BOX_MIN_AREA = 0.0003;
+/** Vape pens / pods are often larger than cigarettes. */
+export const VAPE_BOX_MAX_AREA = 0.12;
+/** Larger box allowed when visible smoke plume is present. */
+export const SMOKE_PLUME_MAX_AREA = 0.2;
+export const SMOKE_PLUME_MIN_PIXEL_RATIO = 0.14;
 /** Only reject toy/red-light pixels below this model score. */
 export const SMOKING_VISUAL_FP_MAX = 0.55;
 export const LITTER_THRESHOLD = 0.48;
@@ -24,7 +29,16 @@ export const PERSON_THRESHOLD = 0.25;
 export const SHOW_PERSON_DETECTIONS = true;
 
 export const INPUT_SIZE = 640;
-export const SMOKING_CLASS_IDX = 1;
+/** Class 0 = person/background, 1 = cigarette, 2 = vape (3-class smoking model). */
+export const CIGARETTE_CLASS_IDX = 1;
+export const VAPE_CLASS_IDX = 2;
+/** @deprecated use CIGARETTE_CLASS_IDX */
+export const SMOKING_CLASS_IDX = CIGARETTE_CLASS_IDX;
+
+export const SMOKING_DECODE_CLASSES = [
+  { idx: CIGARETTE_CLASS_IDX, label: "Cigarette" },
+  { idx: VAPE_CLASS_IDX, label: "Vape" },
+] as const;
 
 export const PERSON_CLASS_IDX = 0;
 

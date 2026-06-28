@@ -4,7 +4,8 @@ import {
   LITTER_MODEL_PATH,
   COCO_MODEL_PATH,
   SMOKING_THRESHOLD,
-  SMOKING_CLASS_IDX,
+  CIGARETTE_CLASS_IDX,
+  SMOKING_DECODE_CLASSES,
   LITTER_THRESHOLD,
   COCO_THRESHOLD,
   PERSON_THRESHOLD,
@@ -12,7 +13,7 @@ import {
   COCO_CLASS_NAMES,
   INPUT_SIZE,
 } from "./modelConfig";
-import { decodeYolo, decodeYoloSingleClass, Detection } from "./yoloDecode";
+import { decodeYolo, decodeYoloClasses, Detection } from "./yoloDecode";
 import { computeCompositeDetections, filterLitterByPersons } from "./rules";
 import { analyzeMouthRegion, isVisualFalsePositive } from "./smokingVision";
 import type { MouthAnalysis } from "./rules";
@@ -199,12 +200,16 @@ export async function runInference(video: HTMLVideoElement): Promise<Detection[]
     const litterOut = litterResult[litterSession.outputNames[0]];
     const cocoOut = cocoResult[cocoSession.outputNames[0]];
     const numAnchors = smokingOut.dims[2] as number;
+    const numClasses = (smokingOut.dims[1] as number) - 4;
+    const smokingClasses =
+      numClasses >= 3
+        ? SMOKING_DECODE_CLASSES
+        : [{ idx: CIGARETTE_CLASS_IDX, label: "Cigarette" as const }];
 
     const smokingDets = remapDetections(
-      decodeYoloSingleClass(
+      decodeYoloClasses(
         smokingOut.data as Float32Array,
-        SMOKING_CLASS_IDX,
-        "Smoking",
+        smokingClasses,
         SMOKING_THRESHOLD,
         numAnchors,
         INPUT_SIZE,
@@ -263,7 +268,7 @@ export async function runInference(video: HTMLVideoElement): Promise<Detection[]
     return [
       ...personDetections,
       ...smokingResults.map((r) => ({
-        label: "Smoking",
+        label: r.productLabel,
         confidence: r.compositeScore,
         box: r.cigaretteBox,
       })),

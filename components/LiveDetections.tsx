@@ -4,7 +4,8 @@ import { forwardRef, useImperativeHandle, useRef } from "react";
 import type { Detection } from "@/lib/yoloDecode";
 import { ALERT_THRESHOLD } from "@/lib/modelConfig";
 
-const SMOKING_COLOR = "#ef4444";
+const CIGARETTE_COLOR = "#ef4444";
+const VAPE_COLOR = "#a855f7";
 const LITTER_COLOR = "#f97316";
 const PERSON_COLOR = "#3b82f6";
 
@@ -13,7 +14,8 @@ export interface LiveDetectionsHandle {
 }
 
 function colorFor(label: string): string {
-  if (label === "Smoking") return SMOKING_COLOR;
+  if (label === "Cigarette") return CIGARETTE_COLOR;
+  if (label === "Vape") return VAPE_COLOR;
   if (label === "Person") return PERSON_COLOR;
   return LITTER_COLOR;
 }

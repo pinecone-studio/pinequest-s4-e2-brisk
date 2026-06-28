@@ -6,11 +6,16 @@ import { Detection } from "@/lib/yoloDecode";
 import { ALERT_THRESHOLD, SMOKING_THRESHOLD, LITTER_THRESHOLD } from "@/lib/modelConfig";
 import type { EvidenceEvent } from "@/lib/evidence";
 
-type ViolationKind = { label: "Smoking" | "Litter"; type: "smoking" | "litter" };
-const SMOKING_KIND: ViolationKind = { label: "Smoking", type: "smoking" };
+type ViolationKind = {
+  label: "Cigarette" | "Vape" | "Litter";
+  type: "smoking" | "vape" | "litter";
+};
+const CIGARETTE_KIND: ViolationKind = { label: "Cigarette", type: "smoking" };
+const VAPE_KIND: ViolationKind = { label: "Vape", type: "vape" };
 const LITTER_KIND: ViolationKind = { label: "Litter", type: "litter" };
 
-const SMOKING_COLOR = "#ef4444";
+const CIGARETTE_COLOR = "#ef4444";
+const VAPE_COLOR = "#a855f7";
 const LITTER_COLOR = "#f97316";
 const PERSON_COLOR = "#3b82f6";
 
@@ -100,7 +105,8 @@ async function captureEvidence(
 }
 
 function getColor(label: string): string {
-  if (label === "Smoking") return SMOKING_COLOR;
+  if (label === "Cigarette") return CIGARETTE_COLOR;
+  if (label === "Vape") return VAPE_COLOR;
   if (label === "Person") return PERSON_COLOR;
   return LITTER_COLOR;
 }
@@ -153,7 +159,11 @@ export default function WebcamCanvas({ onDetections, onEvent, paused }: Props) {
   const onDetectionsRef = useRef(onDetections);
   const onEventRef = useRef(onEvent);
   const pausedRef = useRef(paused);
-  const lastCaptureRef = useRef<{ smoking: number; litter: number }>({ smoking: 0, litter: 0 });
+  const lastCaptureRef = useRef<{ cigarette: number; vape: number; litter: number }>({
+    cigarette: 0,
+    vape: 0,
+    litter: 0,
+  });
 
   useEffect(() => { onDetectionsRef.current = onDetections; }, [onDetections]);
   useEffect(() => { onEventRef.current = onEvent; }, [onEvent]);
@@ -211,14 +221,24 @@ export default function WebcamCanvas({ onDetections, onEvent, paused }: Props) {
                 .filter((d) => d.label === label)
                 .sort((a, b) => b.confidence - a.confidence)[0];
 
-            const smoking = best("Smoking");
+            const cigarette = best("Cigarette");
             if (
-              smoking &&
-              smoking.confidence >= SMOKING_THRESHOLD &&
-              now - lastCaptureRef.current.smoking >= CAPTURE_COOLDOWN_MS
+              cigarette &&
+              cigarette.confidence >= SMOKING_THRESHOLD &&
+              now - lastCaptureRef.current.cigarette >= CAPTURE_COOLDOWN_MS
             ) {
-              lastCaptureRef.current.smoking = now;
-              void captureEvidence(vid, SMOKING_KIND, smoking.confidence, onEventRef.current);
+              lastCaptureRef.current.cigarette = now;
+              void captureEvidence(vid, CIGARETTE_KIND, cigarette.confidence, onEventRef.current);
+            }
+
+            const vape = best("Vape");
+            if (
+              vape &&
+              vape.confidence >= SMOKING_THRESHOLD &&
+              now - lastCaptureRef.current.vape >= CAPTURE_COOLDOWN_MS
+            ) {
+              lastCaptureRef.current.vape = now;
+              void captureEvidence(vid, VAPE_KIND, vape.confidence, onEventRef.current);
             }
 
             const litter = best("Litter");

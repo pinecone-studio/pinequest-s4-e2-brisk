@@ -3,11 +3,14 @@
 import type { EvidenceEvent } from "@/lib/evidence";
 import { SMOKING_THRESHOLD, LITTER_THRESHOLD } from "@/lib/modelConfig";
 
-const SMOKING_COLOR = "#ef4444";
+const CIGARETTE_COLOR = "#ef4444";
+const VAPE_COLOR = "#a855f7";
 const LITTER_COLOR = "#f97316";
 
 function colorFor(label: string): string {
-  return label === "Litter" ? LITTER_COLOR : SMOKING_COLOR;
+  if (label === "Litter") return LITTER_COLOR;
+  if (label === "Vape") return VAPE_COLOR;
+  return CIGARETTE_COLOR;
 }
 
 interface Props {
@@ -64,7 +67,7 @@ export default function EventsPanel({ events, live = false }: Props) {
             style={{
               fontSize: 11,
               fontWeight: 700,
-              color: SMOKING_COLOR,
+              color: CIGARETTE_COLOR,
               background: "rgba(239,68,68,0.12)",
               padding: "2px 8px",
               borderRadius: 4,
@@ -115,7 +118,7 @@ export default function EventsPanel({ events, live = false }: Props) {
             <span style={{ fontSize: 22, opacity: 0.4 }}>&#128276;</span>
             No events
             <span style={{ fontSize: 11, color: "#555" }}>
-              Smoking &amp; litter detections appear here
+              Smoking &amp; litter detections appear here (Cigarette / Vape / Litter)
             </span>
           </div>
         ) : (
@@ -219,10 +222,30 @@ export default function EventsPanel({ events, live = false }: Props) {
                 width: 8,
                 height: 8,
                 borderRadius: "50%",
-                background: SMOKING_COLOR,
+                background: CIGARETTE_COLOR,
               }}
             />
-            Smoking &ge; {Math.round(SMOKING_THRESHOLD * 100)}%
+            Cigarette &ge; {Math.round(SMOKING_THRESHOLD * 100)}%
+          </span>
+          <span
+            style={{
+              fontSize: 11,
+              color: "var(--muted)",
+              display: "flex",
+              alignItems: "center",
+              gap: 5,
+            }}
+          >
+            <span
+              style={{
+                display: "inline-block",
+                width: 8,
+                height: 8,
+                borderRadius: "50%",
+                background: VAPE_COLOR,
+              }}
+            />
+            Vape &ge; {Math.round(SMOKING_THRESHOLD * 100)}%
           </span>
           <span
             style={{

@@ -6,7 +6,8 @@ export interface Detection {
 
 export function normalizeLabel(raw: string): string {
   const lower = raw.toLowerCase();
-  if (lower.includes("smoking")) return "Smoking";
+  if (lower.includes("vape") || lower.includes("e-cig") || lower.includes("ecig")) return "Vape";
+  if (lower.includes("cigarette") || lower.includes("smoking")) return "Cigarette";
   if (lower.includes("litter") || lower.includes("plastic") || lower.includes("trash"))
     return "Litter";
   return raw;
@@ -121,5 +122,22 @@ export function decodeYoloSingleClass(
     });
   }
 
+  return nms(raw);
+}
+
+/** Decode several class channels independently, then NMS (avoids argmax suppressing small boxes). */
+export function decodeYoloClasses(
+  output: Float32Array,
+  classes: readonly { idx: number; label: string }[],
+  threshold: number,
+  numAnchors: number,
+  inputSize = 640,
+): Detection[] {
+  const raw: Detection[] = [];
+  for (const { idx, label } of classes) {
+    raw.push(
+      ...decodeYoloSingleClass(output, idx, label, threshold, numAnchors, inputSize),
+    );
+  }
   return nms(raw);
 }

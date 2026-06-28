@@ -72,6 +72,14 @@ def merge_cigarette_data(auto_label: bool) -> None:
     subprocess.check_call(cmd, cwd=str(ROOT))
 
 
+def merge_smoke_plume_data(auto_label: bool) -> None:
+    script = ROOT / "scripts" / "prepare_smoke_plume_training.py"
+    cmd = [sys.executable, str(script), "--force"]
+    if auto_label:
+        cmd.append("--auto-label")
+    subprocess.check_call(cmd, cwd=str(ROOT))
+
+
 def merge_smoke_data(auto_label: bool) -> None:
     script = ROOT / "scripts" / "prepare_smoke_training.py"
     cmd = [sys.executable, str(script), "--force"]
@@ -95,7 +103,7 @@ def merge_hard_negatives() -> int:
     return len(images)
 
 
-def train(epochs: int, imgsz: int, batch: int) -> Path:
+def train(epochs: int, imgsz: int, batch: int, run_name: str = "smoking_cigarette") -> Path:
     device = _pick_device()
     data_yaml = _fix_data_yaml(DATA_YAML)
 
@@ -114,7 +122,7 @@ def train(epochs: int, imgsz: int, batch: int) -> Path:
         batch=batch,
         device=device,
         project=str(ROOT / "models" / "runs"),
-        name="smoking_cigarette",
+        name=run_name,
         exist_ok=True,
         patience=12,
         verbose=True,
@@ -194,6 +202,7 @@ def main() -> None:
     parser.add_argument("--skip-custom", action="store_true", help="Skip models/custom-smoking/ import")
     parser.add_argument("--skip-smoke", action="store_true", help="Skip expanded smoke-folder import")
     parser.add_argument("--cigarette-only", action="store_true", help="Use tight cigarette labels only")
+    parser.add_argument("--plume", action="store_true", help="Import smoke-plume exhale images and train")
     parser.add_argument("--skip-negatives", action="store_true", help="Skip models/hard-negatives/ import")
     parser.add_argument("--auto-label", action="store_true", help="Auto-label positive custom images")
     parser.add_argument("--skip-export", action="store_true")
@@ -207,7 +216,10 @@ def main() -> None:
     if not args.skip_custom and not args.cigarette_only:
         merge_custom_data(auto_label=args.auto_label)
 
-    if args.cigarette_only:
+    if args.plume:
+        merge_smoke_plume_data(auto_label=args.auto_label)
+        merge_cigarette_data(auto_label=args.auto_label)
+    elif args.cigarette_only:
         merge_cigarette_data(auto_label=args.auto_label)
     elif not args.skip_smoke:
         merge_smoke_data(auto_label=args.auto_label)
@@ -215,8 +227,9 @@ def main() -> None:
     if not args.skip_negatives:
         merge_hard_negatives()
 
+    run_name = "smoking_plume" if args.plume else "smoking_cigarette"
     data_yaml = _fix_data_yaml(DATA_YAML)
-    best = train(args.epochs, args.imgsz, args.batch)
+    best = train(args.epochs, args.imgsz, args.batch, run_name=run_name)
     metrics = validate(best, data_yaml)
     promoted = maybe_promote(best, metrics)
 
