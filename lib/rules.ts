@@ -148,6 +148,32 @@ export function filterLitterByPersons(
   });
 }
 
+/** Drop litter on background shelves/walls (upper frame, not near any person). */
+export function filterBackgroundLitter(
+  litterDets: Detection[],
+  personBoxes: Box[],
+): Detection[] {
+  return litterDets.filter((lit) => {
+    if (lit.confidence >= 0.85) return true;
+
+    const cx = (lit.box[0] + lit.box[2]) / 2;
+    const cy = (lit.box[1] + lit.box[3]) / 2;
+    const nearPerson = personBoxes.some((person) => {
+      const [px1, py1, px2, py2] = person;
+      const margin = 0.08;
+      return (
+        cx >= px1 - margin &&
+        cx <= px2 + margin &&
+        cy >= py1 - margin &&
+        cy <= py2 + margin
+      );
+    });
+
+    if (!nearPerson && cy < 0.58 && lit.confidence < 0.82) return false;
+    return true;
+  });
+}
+
 function boxArea(b: Box): number {
   return Math.max(0, b[2] - b[0]) * Math.max(0, b[3] - b[1]);
 }
@@ -347,6 +373,12 @@ function scorePersonSmoking(
 
   const mouthBox = mouthSmokingBox(personBox, smokingDets);
   const emberRatio = mouthStats?.emberRatio ?? 0;
+
+  // Medium-confidence mouth boxes on a plain face are almost always false positives.
+  if (emberRatio < 0.015 && smokeLikeRatio < 0.14 && smokingModelScore < 0.72) {
+    return null;
+  }
+
   if (
     !isVape &&
     mouthBox.maxBoxArea > 0.07 &&

@@ -207,6 +207,9 @@ export function isVisualFalsePositive(stats: MouthRegionStats): boolean {
   // Hands covering face — mostly skin in mouth area, no ember/smoke.
   if (noEmber && stats.skinCoverRatio > 0.42 && stats.smokeLikeRatio < 0.16) return true;
 
+  // Bare face / lips — model often fires "cigarette" on mouth with no smoke or ember.
+  if (noEmber && stats.skinCoverRatio > 0.28 && stats.smokeLikeRatio < 0.14) return true;
+
   // White paper / toy — not a gray smoke plume.
   if (noEmber && !heavySmoke && stats.centerPaleRatio > 0.045) return true;
   if (noEmber && !heavySmoke && stats.uniformLightRatio > 0.1) return true;
@@ -234,13 +237,15 @@ export function hasRealSmokingEvidence(
     return false;
   }
 
+  // Normal face: mouth shadows are not smoke. Require ember, visible smoke, or very high model score.
+  if (stats.emberRatio < 0.015 && stats.smokeLikeRatio < 0.14) {
+    if (stats.skinCoverRatio > 0.28) return false;
+    if (modelScore < 0.72) return false;
+  }
+
   if (stats.emberRatio > 0.015) return true;
 
   if (stats.smokeLikeRatio > 0.14) return true;
-
-  if (stats.smokeLikeRatio > 0.1 && stats.centerPaleRatio < 0.06 && stats.skinCoverRatio < 0.5) {
-    return true;
-  }
 
   return false;
 }

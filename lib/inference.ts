@@ -14,7 +14,7 @@ import {
   INPUT_SIZE,
 } from "./modelConfig";
 import { decodeYolo, decodeYoloClasses, Detection } from "./yoloDecode";
-import { computeCompositeDetections, filterLitterByPersons } from "./rules";
+import { computeCompositeDetections, filterLitterByPersons, filterBackgroundLitter } from "./rules";
 import { analyzeMouthRegion, isVisualFalsePositive } from "./smokingVision";
 import type { MouthAnalysis } from "./rules";
 
@@ -263,7 +263,10 @@ export async function runInference(video: HTMLVideoElement): Promise<Detection[]
     );
 
     rememberPersons(cocoDets);
-    const filteredLitter = filterLitterByPersons(litterDets, personBoxes);
+    const filteredLitter = filterBackgroundLitter(
+      filterLitterByPersons(litterDets, personBoxes),
+      personBoxes,
+    );
 
     return [
       ...personDetections,
