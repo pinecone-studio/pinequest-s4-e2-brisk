@@ -67,7 +67,7 @@ class CameraDiscoveryServiceTest(unittest.TestCase):
         self.assertEqual(scanner.scans[0]["hosts"], "192.168.1.0/24")
         self.assertEqual(scanner.scans[0]["arguments"], "-sn -n -T5")
         self.assertEqual(scanner.scans[1]["hosts"], "192.168.1.10 192.168.1.11")
-        self.assertEqual(scanner.scans[1]["arguments"], "-p 554,8554,80,8080 --open -n -sT")
+        self.assertEqual(scanner.scans[1]["arguments"], "-p 554,7447,8554 --open -n -sT")
 
     @patch("app.services.camera_discovery.nmap.PortScanner")
     def test_discover_returns_structured_error_for_nmap_failure(self, port_scanner):
