@@ -21,7 +21,7 @@ except ImportError:  # pragma: no cover - exercised only when dependency is miss
 
 logger = logging.getLogger(__name__)
 
-SCAN_PORTS = [554, 8554, 80, 8080]
+SCAN_PORTS = [554, 7447, 8554]
 PING_SWEEP_ARGUMENTS = "-sn -n -T5"
 # python-nmap expects full paths to the nmap *binary*, not directories.
 NMAP_SEARCH_PATH = [
