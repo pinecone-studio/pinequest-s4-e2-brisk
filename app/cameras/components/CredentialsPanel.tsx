@@ -19,21 +19,12 @@ export default function CredentialsPanel({
   const [open, setOpen] = useState(false);
 
   return (
-    <div style={{ position: "relative" }}>
+    <div className="relative">
       <button
         type="button"
-        className="icon-btn"
+        className="h-10 px-3 rounded-[10px] border border-[#272727] bg-[#1a1a1a] text-[#8a8a8a] cursor-pointer flex items-center gap-2 text-[12px] font-medium hover:text-[#e8e8e8]"
         title="Credentials settings"
         onClick={() => setOpen((current) => !current)}
-        style={{
-          width: "auto",
-          padding: "0 12px",
-          gap: 8,
-          display: "flex",
-          alignItems: "center",
-          fontSize: 12,
-          fontWeight: 500,
-        }}
       >
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
           <rect x="3" y="11" width="18" height="11" rx="2" />
@@ -43,67 +34,32 @@ export default function CredentialsPanel({
       </button>
 
       {open ? (
-        <div
-          style={{
-            position: "absolute",
-            top: "calc(100% + 8px)",
-            right: 0,
-            zIndex: 30,
-            width: 320,
-            padding: 14,
-            borderRadius: 10,
-            border: "1px solid var(--border)",
-            background: "var(--card)",
-            boxShadow: "0 12px 32px rgba(0,0,0,0.35)",
-          }}
-        >
-          <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", marginBottom: 10 }}>
+        <div className="absolute top-[calc(100%+8px)] right-0 z-30 w-80 p-3.5 rounded-[10px] border border-[#272727] bg-[#1a1a1a] shadow-[0_12px_32px_rgba(0,0,0,0.35)]">
+          <div className="text-[13px] font-semibold text-[#e8e8e8] mb-2.5">
             Global credentials
           </div>
-          <p style={{ fontSize: 11, color: "var(--muted)", margin: "0 0 12px", lineHeight: 1.4 }}>
+          <p className="text-[11px] text-[#8a8a8a] mb-3 leading-[1.4]">
             Applied to all discovered cameras. Passwords are tried in order until a stream connects.
           </p>
 
-          <label style={{ display: "block", fontSize: 11, color: "var(--muted)", marginBottom: 4 }}>
+          <label className="block text-[11px] text-[#8a8a8a] mb-1">
             Username
           </label>
           <input
             value={credentials.username}
             onChange={(event) => onChange({ ...credentials, username: event.target.value })}
             placeholder="admin"
-            style={{
-              width: "100%",
-              height: 36,
-              marginBottom: 10,
-              padding: "0 10px",
-              borderRadius: 8,
-              border: "1px solid var(--border)",
-              background: "var(--elevated)",
-              color: "var(--text)",
-              fontSize: 13,
-              outline: "none",
-            }}
+            className="w-full h-9 mb-2.5 px-2.5 rounded-lg border border-[#272727] bg-[#1f1f1f] text-[#e8e8e8] text-[13px] outline-none"
           />
 
-          <label style={{ display: "block", fontSize: 11, color: "var(--muted)", marginBottom: 4 }}>
+          <label className="block text-[11px] text-[#8a8a8a] mb-1">
             Passwords (comma-separated)
           </label>
           <input
             value={credentials.passwords}
             onChange={(event) => onChange({ ...credentials, passwords: event.target.value })}
             placeholder="123456, hk123456"
-            style={{
-              width: "100%",
-              height: 36,
-              marginBottom: 12,
-              padding: "0 10px",
-              borderRadius: 8,
-              border: "1px solid var(--border)",
-              background: "var(--elevated)",
-              color: "var(--text)",
-              fontSize: 13,
-              outline: "none",
-            }}
+            className="w-full h-9 mb-3 px-2.5 rounded-lg border border-[#272727] bg-[#1f1f1f] text-[#e8e8e8] text-[13px] outline-none"
           />
 
           <button
@@ -112,17 +68,7 @@ export default function CredentialsPanel({
               onApply();
               setOpen(false);
             }}
-            style={{
-              width: "100%",
-              height: 36,
-              border: "none",
-              borderRadius: 8,
-              background: "var(--brand)",
-              color: "#fff",
-              fontSize: 13,
-              fontWeight: 600,
-              cursor: "pointer",
-            }}
+            className="w-full h-9 border-none rounded-lg bg-[#f0652c] text-white text-[13px] font-semibold cursor-pointer"
           >
             Apply &amp; retry streams
           </button>

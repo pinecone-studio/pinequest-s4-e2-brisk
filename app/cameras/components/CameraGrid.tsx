@@ -88,19 +88,7 @@ export default function CameraGrid({
 
   if (cameras.length === 0) {
     return (
-      <div
-        style={{
-          display: "flex",
-          aspectRatio: "16 / 9",
-          alignItems: "center",
-          justifyContent: "center",
-          borderRadius: 10,
-          border: "1px solid var(--border)",
-          background: "var(--card)",
-          color: "var(--muted)",
-          fontSize: 13,
-        }}
-      >
+      <div className="flex aspect-video items-center justify-center rounded-[10px] border border-[#272727] bg-[#1a1a1a] text-[#8a8a8a] text-[13px]">
         No cameras configured
       </div>
     );
@@ -108,11 +96,8 @@ export default function CameraGrid({
 
   return (
     <div
-      style={{
-        display: "grid",
-        gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
-        gap: 14,
-      }}
+      className="grid gap-3.5"
+      style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
     >
       {cameras.map((camera, index) => (
         <CameraCard

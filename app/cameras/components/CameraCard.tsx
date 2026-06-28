@@ -39,12 +39,12 @@ export default function CameraCard({
   const isOnline = streamState === "online";
 
   const dotColor = isDisabled
-    ? "var(--faint)"
+    ? "#5c5c5c"
     : isUnavailable
-      ? "var(--red)"
+      ? "#ef4444"
       : isOnline
-        ? "var(--brand)"
-        : "var(--yellow)";
+        ? "#f0652c"
+        : "#eab308";
 
   useEffect(() => {
     setImageLoaded(false);
@@ -77,31 +77,21 @@ export default function CameraCard({
 
   return (
     <article
-      className="cam-tile"
+      className={`relative aspect-video w-full overflow-hidden rounded-[10px] bg-black ${
+        onSelect || onCredentialsRequest ? "cursor-pointer" : "cursor-default"
+      } ${
+        selected
+          ? "border-2 border-[#f0652c] shadow-[0_0_0_3px_rgba(240,101,44,0.14)]"
+          : "border border-[#272727]"
+      }`}
       onClick={handleUnavailableClick}
-      style={{
-        position: "relative",
-        aspectRatio: "16 / 9",
-        width: "100%",
-        overflow: "hidden",
-        borderRadius: 10,
-        background: "#000",
-        cursor: onSelect || onCredentialsRequest ? "pointer" : "default",
-        border: selected ? "2px solid var(--brand)" : "1px solid var(--border)",
-        boxShadow: selected ? "0 0 0 3px var(--brand-soft)" : "none",
-      }}
     >
       {showStream ? (
         <>
           <img
             src={camera.stream_url ?? streamUrl}
             alt={cameraTitle(camera)}
-            style={{
-              display: "block",
-              height: "100%",
-              width: "100%",
-              objectFit: "cover",
-            }}
+            className="block h-full w-full object-cover"
             onLoad={() => {
               setImageLoaded(true);
               onStreamSettled("online");
@@ -112,58 +102,30 @@ export default function CameraCard({
             }}
           />
           {streamState === "loading" && !imageLoaded ? (
-            <div className="cam-overlay-center">LOADING</div>
+            <div className="absolute inset-0 flex items-center justify-center text-[#8a8a8a] text-[12px] tracking-[0.08em] bg-[#0d0d0d]">LOADING</div>
           ) : null}
         </>
       ) : (
-        <div className="cam-overlay-center" style={{ flexDirection: "column", gap: 6 }}>
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 text-[#8a8a8a] text-[12px] tracking-[0.08em] bg-[#0d0d0d]">
           <span>{isDisabled ? "DISABLED" : isUnavailable ? "STREAM UNAVAILABLE" : "LOADING"}</span>
           {isUnavailable && onCredentialsRequest ? (
-            <span style={{ fontSize: 10, letterSpacing: "0.04em", color: "var(--faint)" }}>
+            <span className="text-[10px] tracking-[0.04em] text-[#5c5c5c]">
               Click to enter credentials
             </span>
           ) : null}
         </div>
       )}
 
-      <div
-        style={{
-          position: "absolute",
-          inset: 0,
-          pointerEvents: "none",
-          background:
-            "linear-gradient(to top, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0) 34%)",
-        }}
-      />
-      <div
-        style={{
-          position: "absolute",
-          left: 12,
-          bottom: 10,
-          display: "flex",
-          alignItems: "center",
-          gap: 7,
-        }}
-      >
+      <div className="absolute inset-0 pointer-events-none bg-[linear-gradient(to_top,rgba(0,0,0,0.55)_0%,rgba(0,0,0,0)_34%)]" />
+      <div className="absolute left-3 bottom-2.5 flex items-center gap-[7px]">
         <span
+          className="w-[7px] h-[7px] rounded-full shrink-0"
           style={{
-            width: 7,
-            height: 7,
-            borderRadius: "50%",
             background: dotColor,
             boxShadow: isOnline ? `0 0 6px ${dotColor}` : "none",
-            flexShrink: 0,
           }}
         />
-        <span
-          style={{
-            fontSize: 12,
-            fontWeight: 600,
-            color: "#fff",
-            letterSpacing: "0.02em",
-            textShadow: "0 1px 2px rgba(0,0,0,0.6)",
-          }}
-        >
+        <span className="text-[12px] font-semibold text-white tracking-[0.02em] [text-shadow:0_1px_2px_rgba(0,0,0,0.6)]">
           {label}
         </span>
       </div>
@@ -175,20 +137,7 @@ export default function CameraCard({
           event.stopPropagation();
           onCredentialsRequest?.();
         }}
-        style={{
-          position: "absolute",
-          right: 10,
-          bottom: 8,
-          width: 24,
-          height: 24,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          border: "none",
-          background: "transparent",
-          color: "rgba(255,255,255,0.75)",
-          cursor: "pointer",
-        }}
+        className="absolute right-2.5 bottom-2 w-6 h-6 flex items-center justify-center border-none bg-transparent text-[rgba(255,255,255,0.75)] cursor-pointer"
       >
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <rect x="3" y="11" width="18" height="11" rx="2" />
