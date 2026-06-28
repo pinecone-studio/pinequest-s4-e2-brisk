@@ -33,3 +33,144 @@ body {
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-thumb { background: #2c2c2c; border-radius: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }
+
+button:focus-visible, a:focus-visible, input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* ── shared dashboard primitives ── */
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 13px 16px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.card-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.card-body { flex: 1; min-height: 0; overflow-y: auto; }
+
+.count-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 5px;
+  line-height: 1.4;
+}
+
+/* KPI tile */
+.tile {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.tile-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.tile-icon {
+  width: 28px; height: 28px; border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.tile-value {
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.tile-sub { font-size: 11px; color: var(--faint); }
+
+/* events table */
+.ev-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.ev-table th {
+  text-align: left;
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--faint);
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  background: var(--card);
+}
+.ev-table td {
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--border-soft);
+  color: var(--text);
+  vertical-align: middle;
+}
+.ev-table tr:hover td { background: var(--elevated); }
+.ev-thumb {
+  width: 56px; height: 34px; object-fit: cover;
+  border-radius: 5px; background: #000; border: 1px solid var(--border);
+  display: block;
+}
+.class-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 11px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.03em;
+}
+.class-pill .pill-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+
+/* ── analytics dashboard layout ── */
+.dash {
+  flex: 1; min-width: 0;
+  display: flex; flex-direction: column; gap: 14px;
+  padding: 20px 24px; overflow-y: auto;
+}
+.dash-header {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 16px; flex-wrap: wrap;
+}
+.dash-title { font-size: 18px; font-weight: 600; color: var(--text); }
+.dash-subtitle { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+.kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+.dash-main {
+  display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(300px, 1fr);
+  gap: 14px; align-items: stretch;
+}
+.dash-side { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.video-card { min-height: 440px; }
+.video-stage {
+  flex: 1; position: relative; min-height: 0;
+  background: #0d0d0d; overflow: hidden;
+}
+@media (max-width: 1100px) {
+  .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+  .dash-main { grid-template-columns: 1fr; }
+}
+@media (max-width: 620px) {
+  .kpi-grid { grid-template-columns: 1fr; }
+}
