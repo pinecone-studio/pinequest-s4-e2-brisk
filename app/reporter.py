@@ -117,6 +117,7 @@ def report_littering_event(
     frame: np.ndarray,
     evt,            # app.abandonment.LitteringEvent — avoid circular import with string hint
     source_id: str,
+    camera_info: Optional[dict] = None,
 ) -> Optional[Dict]:
     """
     Persist one littering event: annotated snapshot → evidence/, SQLite row, violation dict.
@@ -152,10 +153,13 @@ def report_littering_event(
     img_path = str(EVIDENCE_DIR / fname)
     cv2.imwrite(img_path, annotated)
 
+    floor = camera_info.get("floor", 0) if camera_info else 0
+    zone = camera_info.get("zone", "webcam") if camera_info else "webcam"
+
     row_id = insert_violation(
         camera_id=source_id,
-        floor=0,
-        zone="webcam",
+        floor=floor,
+        zone=zone,
         vtype="littering",
         confidence=1.0,
         image_path=img_path,
@@ -164,8 +168,8 @@ def report_littering_event(
     violation = {
         "id": row_id,
         "camera_id": source_id,
-        "floor": 0,
-        "zone": "webcam",
+        "floor": floor,
+        "zone": zone,
         "type": "littering",
         "confidence": 1.0,
         "image_path": img_path,
