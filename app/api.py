@@ -3,6 +3,7 @@ import json
 import logging
 import shutil
 import subprocess
+from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -18,7 +19,16 @@ from app.database import get_violations, get_stats_today
 
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Aegis")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global _violation_queue
+    _violation_queue = asyncio.Queue()
+    asyncio.create_task(violation_broadcaster())
+    yield
+
+
+app = FastAPI(title="Aegis", lifespan=lifespan)
 app.include_router(camera_discovery_router)
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 Path("evidence").mkdir(exist_ok=True)
@@ -347,8 +357,3 @@ def push_violation(violation: Dict):
         logger.warning("Violation queue full — dropping event")
 
 
-@app.on_event("startup")
-async def startup():
-    global _violation_queue
-    _violation_queue = asyncio.Queue()
-    asyncio.create_task(violation_broadcaster())
