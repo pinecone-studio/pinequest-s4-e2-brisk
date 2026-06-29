@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import logging
 import os
 import socket
 import subprocess
@@ -13,6 +14,8 @@ from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
 from app.services.camera_discovery_state import CameraDiscoveryScanManager
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/cameras/discovery", tags=["Camera Discovery"])
 scan_manager = CameraDiscoveryScanManager(timeout_seconds=300)
@@ -119,7 +122,15 @@ def _resolve_targets(request_targets: Optional[List[str]]) -> List[str]:
     if env_targets:
         return [target.strip() for target in env_targets.split(",") if target.strip()]
 
-    return _targets_from_camera_config()
+    config_targets = _targets_from_camera_config()
+    if config_targets:
+        return config_targets
+
+    try:
+        return [_detect_local_subnet()]
+    except Exception as exc:
+        logger.warning("Could not detect local subnet for camera discovery: %s", exc)
+        return []
 
 
 def _targets_from_camera_config(path: str = "cameras.json") -> List[str]:
