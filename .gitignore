@@ -26,3 +26,7 @@ out/
 # Runtime models live in public/models/ and stay tracked.
 models/smoking-dataset/
 models/security-dataset/
+
+# YAMNet local cache (downloaded by TensorFlow Hub or manually)
+models/yamnet_cache/
+models/yamnet/

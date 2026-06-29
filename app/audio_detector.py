@@ -14,6 +14,7 @@ Usage:
 from __future__ import annotations
 
 import logging
+import os
 import subprocess
 import tempfile
 from dataclasses import dataclass
@@ -114,10 +115,20 @@ def _load_yamnet():
     if _model is not None:
         return _model, _class_names
 
-    import tensorflow_hub as hub
+    local_path = os.environ.get("YAMNET_LOCAL_PATH", "").strip()
+    if local_path and Path(local_path).is_dir():
+        import tensorflow as tf
+        logger.info("Loading YAMNet from local path: %s", local_path)
+        _model = tf.saved_model.load(local_path)
+    else:
+        import tensorflow_hub as hub
+        cache_dir = os.environ.get("TFHUB_CACHE_DIR", "").strip()
+        if cache_dir:
+            os.environ["TFHUB_CACHE_DIR"] = cache_dir
+        logger.info("Loading YAMNet from TensorFlow Hub (cache: %s)…",
+                    cache_dir or "default")
+        _model = hub.load("https://tfhub.dev/google/yamnet/1")
 
-    logger.info("Loading YAMNet from TensorFlow Hub…")
-    _model = hub.load("https://tfhub.dev/google/yamnet/1")
     class_map_path = _model.class_map_path().numpy().decode("utf-8")
     _class_names = [line.strip() for line in Path(class_map_path).read_text().splitlines()[1:]]
     logger.info("YAMNet ready (%d classes)", len(_class_names))
