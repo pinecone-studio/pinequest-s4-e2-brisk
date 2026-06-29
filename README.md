@@ -36,6 +36,14 @@ sudo apt update && sudo apt install nmap ffmpeg
 
 You need **two terminals** — one for the Python backend, one for Next.js.
 
+### 0. Environment variables
+
+```bash
+cp .env.example .env          # backend secrets (Roboflow keys, etc.)
+cp .env.local.example .env.local  # frontend config (FastAPI origin, model selection)
+# Edit both files and fill in real values before starting the servers.
+```
+
 ### 1. Backend (FastAPI)
 
 ```bash
@@ -78,7 +86,7 @@ The frontend runs three ONNX models entirely in the browser:
 | `public/models/litter.onnx` | Litter / plastic bottle detection |
 | `public/models/coco.onnx` | COCO person detector (context for false-positive filtering) |
 
-These files are **not tracked in git** (they are large binary weights). You must obtain them separately — either by exporting from a trained Ultralytics checkpoint via `training/export_onnx.py`, or by downloading from the project's model store.
+These files are **tracked in git** and are included when you clone the repository. No separate download is needed for the browser models.
 
 The Python backend also needs:
 
