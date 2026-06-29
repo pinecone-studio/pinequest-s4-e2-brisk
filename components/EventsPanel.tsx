@@ -1,7 +1,7 @@
 "use client";
 
 import type { EvidenceEvent } from "@/lib/evidence";
-import { SMOKING_THRESHOLD, LITTER_THRESHOLD } from "@/lib/modelConfig";
+import { SMOKING_THRESHOLD } from "@/lib/modelConfig";
 
 const CIGARETTE_COLOR = "#ef4444";
 const VAPE_COLOR = "#a855f7";
@@ -54,7 +54,10 @@ export default function EventsPanel({ events, live = false }: Props) {
             <span className="text-[22px] opacity-40">&#128276;</span>
             No events
             <span className="text-[11px] text-[#555]">
-              Smoking &amp; litter detections appear here (Cigarette / Vape / Litter)
+              Smoking &amp; littering events appear here (Cigarette / Vape / Litter)
+            </span>
+            <span className="text-[10px] text-[#444] max-w-[220px]">
+              Littering = hold object, drop on floor, then walk away (~8s)
             </span>
           </div>
         ) : (
@@ -124,7 +127,7 @@ export default function EventsPanel({ events, live = false }: Props) {
           </span>
           <span className="text-[11px] text-[#8a8a8a] flex items-center gap-[5px]">
             <span className="inline-block w-2 h-2 rounded-full" style={{ background: LITTER_COLOR }} />
-            Litter &ge; {Math.round(LITTER_THRESHOLD * 100)}%
+            Littering (carry → drop → leave)
           </span>
         </div>
       </div>

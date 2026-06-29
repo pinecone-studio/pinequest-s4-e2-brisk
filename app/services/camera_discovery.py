@@ -22,8 +22,8 @@ except ImportError:  # pragma: no cover - exercised only when dependency is miss
 
 logger = logging.getLogger(__name__)
 
-SCAN_PORTS = [554, 7447, 8554]
-PING_SWEEP_ARGUMENTS = "-sn -n -T5"
+SCAN_PORTS = [554, 7447, 8554, 80, 8000, 888]
+PORT_SCAN_ARGUMENTS = "-p {ports} --open -n -sT -T4"
 # python-nmap expects full paths to the nmap *binary*, not directories.
 NMAP_SEARCH_PATH = [
     "nmap",
@@ -62,7 +62,7 @@ class CameraDiscoveryConfig:
     rtsp_routes: List[str] = field(default_factory=lambda: RTSP_ROUTES.copy())
     credentials: List[tuple[str, str]] = field(default_factory=lambda: DEFAULT_CREDENTIALS.copy())
     probe_timeout_seconds: float = 1.0
-    probe_rtsp: bool = False
+    probe_rtsp: bool = True
 
 
 @dataclass
@@ -183,37 +183,25 @@ class CameraDiscoveryService(BaseCameraDiscoveryService):
     ) -> tuple[List[DiscoveredCamera], str]:
         scanner = nmap.PortScanner(nmap_search_path=NMAP_SEARCH_PATH)
         port_str = ",".join(str(port) for port in ports)
-        sweep_output = scanner.scan(hosts=target, arguments=PING_SWEEP_ARGUMENTS)
-        live_hosts = scanner.all_hosts()
-        logging.warning(f"Found hosts: {live_hosts}")
-        if not live_hosts:
-            return [], str(sweep_output)
-
-        port_scan_arguments = f"-p {port_str} --open -n -sT"
-        raw_output = scanner.scan(
-            hosts=" ".join(live_hosts),
-            arguments=port_scan_arguments,
-        )
+        port_scan_arguments = PORT_SCAN_ARGUMENTS.format(ports=port_str)
+        raw_output = scanner.scan(hosts=target, arguments=port_scan_arguments)
         port_scan_hosts = scanner.all_hosts()
-        logging.warning(f"Port scan hosts: {port_scan_hosts}")
+        logger.info("Port scan on %s found hosts: %s", target, port_scan_hosts)
 
         cameras: List[DiscoveredCamera] = []
+        rtsp_ports = {554, 7447, 8554}
         for host in port_scan_hosts:
             host_entry = scanner[host]
-            found_ports = [
+            open_rtsp_ports = [
                 port
                 for port in ports
-                if host_entry.has_tcp(port) and host_entry["tcp"][port].get("state") == "open"
+                if port in rtsp_ports
+                and host_entry.has_tcp(port)
+                and host_entry["tcp"][port].get("state") == "open"
             ]
-            logging.warning(f"Found ports for {host}: {found_ports}")
-            for port in ports:
-                if not host_entry.has_tcp(port):
-                    continue
-
+            logger.info("Open RTSP ports for %s: %s", host, open_rtsp_ports)
+            for port in open_rtsp_ports:
                 tcp_entry = host_entry["tcp"][port]
-                if tcp_entry.get("state") != "open":
-                    continue
-
                 if self.config.probe_rtsp:
                     route, username, password = self._probe_rtsp(host, port)
                 else:
@@ -235,7 +223,7 @@ class CameraDiscoveryService(BaseCameraDiscoveryService):
                     )
                 )
 
-        return cameras, "\n".join([str(sweep_output), str(raw_output)])
+        return cameras, str(raw_output)
 
     def _fetch_unifi_cameras(self) -> List[DiscoveredCamera]:
         api_key = os.getenv("UNIFI_API_KEY")

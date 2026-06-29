@@ -212,7 +212,7 @@ export default function WebcamCanvas({ onDetections, onEvent, paused }: Props) {
 
         if (vid && overlay && container && vid.readyState >= 2 && !pausedRef.current) {
           try {
-            const dets = await runInference(vid);
+            const { detections: dets } = await runInference(vid);
 
             onDetectionsRef.current?.(dets);
 

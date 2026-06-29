@@ -1,4 +1,5 @@
-import { Detection } from "./yoloDecode";
+import type { FrameSource } from "./frameSource";
+import { getSourceSize } from "./frameSource";
 import { SMOKING_MOUTH_BOX_MIN } from "./modelConfig";
 
 type Box = [number, number, number, number];
@@ -57,11 +58,10 @@ function isEmberPixel(r: number, g: number, b: number): boolean {
 
 /** Sample mouth-area pixels from the live video frame (normalized person box). */
 export function analyzeMouthRegion(
-  video: HTMLVideoElement,
+  source: FrameSource,
   personBox: Box,
 ): MouthRegionStats | null {
-  const w = video.videoWidth;
-  const h = video.videoHeight;
+  const { width: w, height: h } = getSourceSize(source);
   if (!w || !h) return null;
 
   const [px1, py1, px2, py2] = personBox;
@@ -81,7 +81,7 @@ export function analyzeMouthRegion(
   canvas.height = rh;
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
   if (!ctx) return null;
-  ctx.drawImage(video, x1, y1, rw, rh, 0, 0, rw, rh);
+  ctx.drawImage(source, x1, y1, rw, rh, 0, 0, rw, rh);
   const { data } = ctx.getImageData(0, 0, rw, rh);
 
   let solidRed = 0;

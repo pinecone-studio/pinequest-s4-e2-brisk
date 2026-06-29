@@ -23,6 +23,8 @@ export const SMOKE_PLUME_MIN_PIXEL_RATIO = 0.14;
 /** Only reject toy/red-light pixels below this model score. */
 export const SMOKING_VISUAL_FP_MAX = 0.55;
 export const LITTER_THRESHOLD = 0.48;
+/** Lower decode threshold for carry/drop tracking (not instant alerts). */
+export const LITTER_TRACK_THRESHOLD = 0.30;
 export const ALERT_THRESHOLD = 0.55;
 export const COCO_THRESHOLD = 0.25;
 export const PERSON_THRESHOLD = 0.25;

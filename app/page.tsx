@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import dynamic from "next/dynamic";
 import CameraGrid from "./cameras/components/CameraGrid";
 import CameraCredentialsModal, {
   type CameraCredentials,
@@ -24,8 +23,6 @@ import { loadModels, activeBackend } from "@/lib/inference";
 import type { EvidenceEvent } from "@/lib/evidence";
 import ModelStatusBadge from "@/components/ModelStatusBadge";
 import EventsPanel from "@/components/EventsPanel";
-
-const WebcamCanvas = dynamic(() => import("@/components/WebcamCanvas"), { ssr: false });
 
 const MAX_EVENTS = 50;
 const DISCOVERY_POLL_INTERVAL_MS = 2000;
@@ -50,42 +47,10 @@ function cameraLabel(camera: CameraView) {
 }
 
 export default function HomePage() {
-  // — webcam AI (event source) —
   const [modelState, setModelState] = useState<"loading" | "ready" | "error">("loading");
-  const [paused, setPaused] = useState(false);
   const [events, setEvents] = useState<EvidenceEvent[]>([]);
-
-  const handleEvent = useCallback((event: EvidenceEvent) => {
-    setEvents((prev) => [event, ...prev].slice(0, MAX_EVENTS));
-  }, []);
-
-  useEffect(() => {
-    loadModels()
-      .then(() => {
-        console.info("[inference] backend:", activeBackend);
-        setModelState("ready");
-      })
-      .catch((err) => {
-        console.error("Model load failed:", err);
-        setModelState("error");
-      });
-  }, []);
-
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.code === "Space" && !(e.target instanceof HTMLInputElement) && !(e.target instanceof HTMLTextAreaElement)) {
-        e.preventDefault();
-        setPaused((p) => !p);
-      }
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
-
-  // — cameras / live monitoring state —
   const [cameras, setCameras] = useState<CameraView[]>([]);
   const [cameraLoadError, setCameraLoadError] = useState<string | null>(null);
-  const [modelWarning, setModelWarning] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [columns, setColumns] = useState<LayoutCols>(2);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -106,6 +71,22 @@ export default function HomePage() {
 
   const isScanning = discoveryStatus === "running";
   const showScanOverlay = isScanning || isStartingScan;
+
+  const handleEvent = useCallback((event: EvidenceEvent) => {
+    setEvents((prev) => [event, ...prev].slice(0, MAX_EVENTS));
+  }, []);
+
+  useEffect(() => {
+    loadModels()
+      .then(() => {
+        console.info("[inference] backend:", activeBackend);
+        setModelState("ready");
+      })
+      .catch((err) => {
+        console.error("Model load failed:", err);
+        setModelState("error");
+      });
+  }, []);
 
   useEffect(() => {
     setGlobalCredentials(loadGlobalCredentials());
@@ -203,7 +184,6 @@ export default function HomePage() {
 
     setCameras(cams);
     setCameraLoadError(null);
-    setModelWarning(null);
     setSelectedId((current) => {
       if (current && cams.some((camera) => camera.id === current)) {
         return current;
@@ -236,8 +216,8 @@ export default function HomePage() {
     setSelectedId(null);
 
     try {
-      const subnet = await fetchDiscoverySubnet();
-      await startDiscoveryScan(subnet);
+      await fetchDiscoverySubnet();
+      await startDiscoveryScan();
 
       const afterStart = await fetchDiscoveryResults();
       setDiscoveryStatus(afterStart.status);
@@ -252,7 +232,6 @@ export default function HomePage() {
     }
   }, [applyDiscoveryResults, isScanning, isStartingScan]);
 
-  // Load last scan results on mount (no auto-scan).
   useEffect(() => {
     let cancelled = false;
 
@@ -263,6 +242,15 @@ export default function HomePage() {
 
         setDiscoveryStatus(initial.status);
         applyDiscoveryResults(initial.cameras);
+
+        if (initial.cameras.length === 0 && initial.status !== "running") {
+          await startDiscoveryScan();
+          if (cancelled) return;
+          const afterScan = await fetchDiscoveryResults();
+          if (cancelled) return;
+          setDiscoveryStatus(afterScan.status);
+          applyDiscoveryResults(afterScan.cameras);
+        }
       } catch (err) {
         if (cancelled) return;
         setCameraLoadError(
@@ -276,7 +264,6 @@ export default function HomePage() {
     };
   }, [applyDiscoveryResults]);
 
-  // Poll for progressive results while scan is running; pause when credentials modal is open.
   useEffect(() => {
     if (credentialsModalOpen) return;
 
@@ -353,7 +340,6 @@ export default function HomePage() {
   return (
     <div className="flex h-screen p-4 bg-[#0a0a0a]">
       <div className="flex flex-1 min-w-0 overflow-hidden bg-[#141414] border border-[#1e1e1e] rounded-[18px]">
-        {/* ── LIVE MONITORING ── */}
         <div className="flex flex-1 min-w-0 relative overflow-hidden">
           {showScanOverlay ? (
             <div
@@ -366,11 +352,10 @@ export default function HomePage() {
                 aria-hidden="true"
               />
               <div className="text-[16px] font-semibold text-[#e8e8e8]">Scanning local network for IP cameras…</div>
-              <div className="text-[13px] text-[#8a8a8a] max-w-[360px] leading-normal">Please wait while we search your subnet for RTSP devices.</div>
+              <div className="text-[13px] text-[#8a8a8a] max-w-[360px] leading-normal">Searching all connected networks for RTSP devices.</div>
             </div>
           ) : null}
 
-          {/* sidebar: camera list */}
           <aside className="w-[300px] shrink-0 flex flex-col border-r border-[#1e1e1e] px-3 py-[18px] overflow-y-auto max-[1200px]:w-[240px]">
             <div className="flex items-center justify-between px-2 pb-[14px]">
               <span className="text-[15px] font-semibold text-[#e8e8e8]">Aegis</span>
@@ -415,7 +400,6 @@ export default function HomePage() {
             )}
           </aside>
 
-          {/* main: webcam AI feed + camera grid */}
           <section className="flex-1 min-w-0 flex flex-col overflow-hidden">
             <div className="flex items-center gap-4 px-[22px] py-4">
               <div className="flex-1 max-w-[520px] relative flex items-center">
@@ -451,6 +435,7 @@ export default function HomePage() {
                   onChange={setGlobalCredentials}
                   onApply={handleApplyGlobalCredentials}
                 />
+                <ModelStatusBadge state={modelState} />
                 <div className="flex items-center gap-[7px] text-[12px] text-[#8a8a8a]">
                   <span
                     className="w-2 h-2 rounded-full bg-[#22c55e] shadow-[0_0_6px_#22c55e] animate-[pulse-dot_2s_infinite]"
@@ -459,13 +444,6 @@ export default function HomePage() {
                   {showScanOverlay
                     ? "Scanning network…"
                     : `${onlineCount}/${cameras.length} online`}
-                </div>
-                <div className="flex items-center gap-[9px] cursor-pointer">
-                  <div className="w-9 h-9 rounded-full bg-[linear-gradient(135deg,#4b5563,#1f2937)] flex items-center justify-center text-white text-[13px] font-semibold">A</div>
-                  <span className="text-[13.5px] text-[#e8e8e8] font-medium">Administrator</span>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8a8a8a" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M6 9l6 6 6-6" />
-                  </svg>
                 </div>
               </div>
             </div>
@@ -500,66 +478,9 @@ export default function HomePage() {
               </div>
             </div>
 
-            {modelWarning && (
-              <div className="mx-[22px] mb-[14px] px-3 py-2.5 border border-[rgba(234,179,8,0.45)] rounded-lg bg-[rgba(234,179,8,0.1)] text-[#eab308] text-[12px]">
-                {modelWarning}
-              </div>
-            )}
-
             <div className="flex-1 overflow-y-auto px-[22px] pb-[22px]">
-              {/* featured: live webcam AI feed (the event source) */}
-              <div className="bg-[#1a1a1a] border border-[#272727] rounded-xl flex flex-col overflow-hidden min-w-0 mb-4 min-h-[380px] shadow-[0_0_0_1px_rgba(240,101,44,0.14)]">
-                <div className="flex items-center justify-between gap-2.5 px-4 py-[13px] border-b border-[#272727] shrink-0">
-                  <span className="inline-flex items-center gap-1.5 text-[10px] font-bold tracking-[0.05em] uppercase text-[#f0652c] bg-[rgba(240,101,44,0.14)] px-2 py-[3px] rounded-[5px]">
-                    <span className="w-[7px] h-[7px] rounded-full bg-current" />
-                    Webcam AI · Smoking &amp; Litter
-                  </span>
-                  <div className="flex items-center gap-2.5">
-                    <ModelStatusBadge state={modelState} />
-                    {modelState === "ready" && (
-                      <button
-                        className="flex items-center gap-[7px] h-[30px] px-3 rounded-lg border border-[#272727] text-[12px] font-semibold cursor-pointer"
-                        onClick={() => setPaused((p) => !p)}
-                        title={paused ? "Resume AI (Space)" : "Pause AI (Space)"}
-                        style={{
-                          background: paused ? "rgba(59,130,246,0.15)" : "#1f1f1f",
-                          color: paused ? "#3b82f6" : "#e8e8e8",
-                        }}
-                      >
-                        {paused ? (
-                          <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
-                        ) : (
-                          <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6zM14 5v14h4V5z" /></svg>
-                        )}
-                        {paused ? "Resume" : "Pause"}
-                      </button>
-                    )}
-                  </div>
-                </div>
-                <div className="flex-1 relative min-h-[340px] bg-[#0d0d0d] overflow-hidden rounded-b-xl">
-                  {modelState === "loading" && (
-                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-[#8a8a8a] text-[14px] z-10">
-                      <div className="w-7 h-7 border-[3px] border-[#272727] border-t-[#3b82f6] rounded-full animate-[spin_0.8s_linear_infinite]" />
-                      <span>Loading models&hellip;</span>
-                      <span className="text-[11px] text-[#555]">First load may take 10–20s</span>
-                    </div>
-                  )}
-                  {modelState === "error" && (
-                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-[#ef4444] text-[14px] z-10">
-                      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /><path d="M12 9v4M12 17h.01" /></svg>
-                      <span>Failed to load models</span>
-                      <span className="text-[12px] text-[#8a8a8a]">Check console for details</span>
-                    </div>
-                  )}
-                  {modelState === "ready" && (
-                    <WebcamCanvas onEvent={handleEvent} paused={paused} />
-                  )}
-                </div>
-              </div>
-
-              {/* network cameras */}
               {cameraLoadError ? (
-                <div className="flex aspect-video items-center justify-center rounded-[10px] border border-[#272727] bg-[#1a1a1a] text-[#ef4444] text-[13px]">
+                <div className="flex min-h-[400px] items-center justify-center rounded-[10px] border border-[#272727] bg-[#1a1a1a] text-[#ef4444] text-[13px] px-4 text-center">
                   {cameraLoadError}
                 </div>
               ) : (
@@ -570,12 +491,13 @@ export default function HomePage() {
                   onSelect={setSelectedId}
                   onStreamFailed={handleStreamFailed}
                   onCredentialsRequest={setCredentialsModalCameraId}
+                  modelsReady={modelState === "ready"}
+                  onEvent={handleEvent}
                 />
               )}
             </div>
           </section>
 
-          {/* events sidebar */}
           <aside className="w-[340px] shrink-0 flex flex-col border-l border-[#1e1e1e] px-3.5 py-[18px] min-h-0 max-[1200px]:w-[280px]">
             <div className="flex items-center gap-[9px] px-1 pb-[14px]">
               <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#f0652c" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">

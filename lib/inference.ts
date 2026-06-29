@@ -6,7 +6,7 @@ import {
   SMOKING_THRESHOLD,
   CIGARETTE_CLASS_IDX,
   SMOKING_DECODE_CLASSES,
-  LITTER_THRESHOLD,
+  LITTER_TRACK_THRESHOLD,
   COCO_THRESHOLD,
   PERSON_THRESHOLD,
   SHOW_PERSON_DETECTIONS,
@@ -14,9 +14,13 @@ import {
   INPUT_SIZE,
 } from "./modelConfig";
 import { decodeYolo, decodeYoloClasses, Detection } from "./yoloDecode";
-import { computeCompositeDetections, filterLitterByPersons, filterBackgroundLitter } from "./rules";
+import { computeCompositeDetections } from "./rules";
+import { buildLitteringInputs } from "./littering/pipeline";
+import type { RawDetection } from "./littering/simpleTracker";
 import { analyzeMouthRegion, isVisualFalsePositive } from "./smokingVision";
 import type { MouthAnalysis } from "./rules";
+import type { FrameSource } from "./frameSource";
+import { getSourceSize, isSourceReady } from "./frameSource";
 
 const LITTER_CLASS_NAMES = ["plastic-bottles"];
 
@@ -24,7 +28,6 @@ let ort: typeof OrtType | null = null;
 let smokingSession: OrtType.InferenceSession | null = null;
 let litterSession: OrtType.InferenceSession | null = null;
 let cocoSession: OrtType.InferenceSession | null = null;
-let isRunning = false;
 
 export let activeBackend: "webgpu" | "wasm" = "wasm";
 
@@ -78,11 +81,11 @@ interface LetterboxMeta {
 const PERSON_MEMORY_MS = 2000;
 let recentPersons: { box: Box; t: number }[] = [];
 
-function mouthAnalysisFromVideo(
-  video: HTMLVideoElement,
+function mouthAnalysisFromSource(
+  source: FrameSource,
   personBox: Box,
 ): MouthAnalysis | null {
-  const stats = analyzeMouthRegion(video, personBox);
+  const stats = analyzeMouthRegion(source, personBox);
   if (!stats) return null;
   return {
     smokeLikeRatio: stats.smokeLikeRatio,
@@ -119,15 +122,14 @@ function mergePersonBoxes(...groups: Box[][]): Box[] {
   return merged;
 }
 
-function preprocessFrame(source: HTMLVideoElement): {
+function preprocessFrame(source: FrameSource): {
   inputData: Float32Array;
   meta: LetterboxMeta;
 } {
   if (!ort) throw new Error("ORT not loaded");
 
-  const srcW = source.videoWidth;
-  const srcH = source.videoHeight;
-  if (!srcW || !srcH) throw new Error("Video not ready");
+  const { width: srcW, height: srcH } = getSourceSize(source);
+  if (!srcW || !srcH) throw new Error("Frame source not ready");
 
   if (!preprocessCanvas) {
     preprocessCanvas = document.createElement("canvas");
@@ -183,18 +185,22 @@ function remapDetections(dets: Detection[], meta: LetterboxMeta): Detection[] {
   return dets.map((d) => ({ ...d, box: unmapBox(d.box, meta) }));
 }
 
-export async function runInference(video: HTMLVideoElement): Promise<Detection[]> {
-  if (!ort || !smokingSession || !litterSession || !cocoSession) return [];
-  if (isRunning) return [];
-  isRunning = true;
+export interface InferenceResult {
+  detections: Detection[];
+  litteringInputs: RawDetection[];
+}
 
-  try {
-    const { inputData, meta } = preprocessFrame(video);
-    const tensor = new ort.Tensor("float32", inputData, [1, 3, INPUT_SIZE, INPUT_SIZE]);
+export async function runInference(source: FrameSource): Promise<InferenceResult> {
+  const empty: InferenceResult = { detections: [], litteringInputs: [] };
+  if (!ort || !smokingSession || !litterSession || !cocoSession) return empty;
+  if (!isSourceReady(source)) return empty;
 
-    const smokingResult = await smokingSession.run({ [smokingSession.inputNames[0]]: tensor });
-    const litterResult = await litterSession.run({ [litterSession.inputNames[0]]: tensor });
-    const cocoResult = await cocoSession.run({ [cocoSession.inputNames[0]]: tensor });
+  const { inputData, meta } = preprocessFrame(source);
+  const tensor = new ort.Tensor("float32", inputData, [1, 3, INPUT_SIZE, INPUT_SIZE]);
+
+  const smokingResult = await smokingSession.run({ [smokingSession.inputNames[0]]: tensor });
+  const litterResult = await litterSession.run({ [litterSession.inputNames[0]]: tensor });
+  const cocoResult = await cocoSession.run({ [cocoSession.inputNames[0]]: tensor });
 
     const smokingOut = smokingResult[smokingSession.outputNames[0]];
     const litterOut = litterResult[litterSession.outputNames[0]];
@@ -221,7 +227,7 @@ export async function runInference(video: HTMLVideoElement): Promise<Detection[]
       decodeYolo(
         litterOut.data as Float32Array,
         LITTER_CLASS_NAMES,
-        LITTER_THRESHOLD,
+        LITTER_TRACK_THRESHOLD,
         litterOut.dims[2] as number,
       ),
       meta,
@@ -253,35 +259,27 @@ export async function runInference(video: HTMLVideoElement): Promise<Detection[]
     const cocoPersons = cocoDets
       .filter((d) => d.label === "person")
       .map((d) => d.box);
-    const smokingPersons = cocoPersons;
-    const personBoxes = mergePersonBoxes(cocoPersons, cachedPersons);
+    const smokingPersons = mergePersonBoxes(cocoPersons, cachedPersons);
 
     const { smokingResults } = computeCompositeDetections(
       smokingDets,
       smokingPersons,
-      (box) => mouthAnalysisFromVideo(video, box),
+      (box) => mouthAnalysisFromSource(source, box),
     );
 
     rememberPersons(cocoDets);
-    const filteredLitter = filterBackgroundLitter(
-      filterLitterByPersons(litterDets, personBoxes),
-      personBoxes,
-    );
 
-    return [
+    const litteringInputs = buildLitteringInputs(cocoDets, litterDets);
+
+  return {
+    detections: [
       ...personDetections,
       ...smokingResults.map((r) => ({
         label: r.productLabel,
         confidence: r.compositeScore,
         box: r.cigaretteBox,
       })),
-      ...filteredLitter.map((r) => ({
-        label: "Litter",
-        confidence: r.confidence,
-        box: r.box,
-      })),
-    ];
-  } finally {
-    isRunning = false;
-  }
+    ],
+    litteringInputs,
+  };
 }
