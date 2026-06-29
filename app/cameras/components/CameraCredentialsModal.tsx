@@ -28,109 +28,52 @@ export default function CameraCredentialsModal({
       aria-modal="true"
       aria-label={`Credentials for ${camera.name ?? camera.id}`}
       onClick={onClose}
-      style={{
-        position: "fixed",
-        inset: 0,
-        zIndex: 50,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        background: "rgba(0,0,0,0.55)",
-        padding: 16,
-      }}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(0,0,0,0.55)] p-4"
     >
       <div
         onClick={(event) => event.stopPropagation()}
-        style={{
-          width: "100%",
-          maxWidth: 380,
-          borderRadius: 12,
-          border: "1px solid var(--border)",
-          background: "var(--card)",
-          padding: 18,
-        }}
+        className="w-full max-w-[380px] rounded-xl border border-[#272727] bg-[#1a1a1a] p-[18px]"
       >
-        <div style={{ fontSize: 15, fontWeight: 600, color: "var(--text)", marginBottom: 4 }}>
+        <div className="text-[15px] font-semibold text-[#e8e8e8] mb-1">
           Camera credentials
         </div>
-        <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 14 }}>
+        <div className="text-[12px] text-[#8a8a8a] mb-3.5">
           {camera.name ?? camera.id}
           {camera.host ? ` · ${camera.host}` : ""}
         </div>
 
-        <label style={{ display: "block", fontSize: 11, color: "var(--muted)", marginBottom: 4 }}>
+        <label className="block text-[11px] text-[#8a8a8a] mb-1">
           Username
         </label>
         <input
           value={username}
           onChange={(event) => setUsername(event.target.value)}
           autoFocus
-          style={{
-            width: "100%",
-            height: 38,
-            marginBottom: 10,
-            padding: "0 10px",
-            borderRadius: 8,
-            border: "1px solid var(--border)",
-            background: "var(--elevated)",
-            color: "var(--text)",
-            fontSize: 13,
-            outline: "none",
-          }}
+          className="w-full h-[38px] mb-2.5 px-2.5 rounded-lg border border-[#272727] bg-[#1f1f1f] text-[#e8e8e8] text-[13px] outline-none"
         />
 
-        <label style={{ display: "block", fontSize: 11, color: "var(--muted)", marginBottom: 4 }}>
+        <label className="block text-[11px] text-[#8a8a8a] mb-1">
           Password
         </label>
         <input
           value={password}
           onChange={(event) => setPassword(event.target.value)}
           type="password"
-          style={{
-            width: "100%",
-            height: 38,
-            marginBottom: 16,
-            padding: "0 10px",
-            borderRadius: 8,
-            border: "1px solid var(--border)",
-            background: "var(--elevated)",
-            color: "var(--text)",
-            fontSize: 13,
-            outline: "none",
-          }}
+          className="w-full h-[38px] mb-4 px-2.5 rounded-lg border border-[#272727] bg-[#1f1f1f] text-[#e8e8e8] text-[13px] outline-none"
         />
 
-        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+        <div className="flex gap-2 justify-end">
           <button
             type="button"
             onClick={onClose}
-            style={{
-              height: 36,
-              padding: "0 14px",
-              borderRadius: 8,
-              border: "1px solid var(--border)",
-              background: "transparent",
-              color: "var(--muted)",
-              fontSize: 13,
-              cursor: "pointer",
-            }}
+            className="h-9 px-3.5 rounded-lg border border-[#272727] bg-transparent text-[#8a8a8a] text-[13px] cursor-pointer"
           >
             Cancel
           </button>
           <button
             type="button"
             onClick={() => onSave({ username, password })}
-            style={{
-              height: 36,
-              padding: "0 14px",
-              borderRadius: 8,
-              border: "none",
-              background: "var(--brand)",
-              color: "#fff",
-              fontSize: 13,
-              fontWeight: 600,
-              cursor: "pointer",
-            }}
+            className="h-9 px-3.5 rounded-lg border-none bg-[#f0652c] text-white text-[13px] font-semibold cursor-pointer"
           >
             Connect
           </button>

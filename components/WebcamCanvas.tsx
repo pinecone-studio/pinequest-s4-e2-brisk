@@ -21,6 +21,8 @@ const PERSON_COLOR = "#3b82f6";
 
 const CAPTURE_COOLDOWN_MS = 8000;
 const THUMB_WIDTH = 200;
+const WEBCAM_CAMERA_ID = "webcam";
+const WEBCAM_SOURCE_LABEL = "Webcam AI";
 
 interface Props {
   onDetections?: (dets: Detection[]) => void;
@@ -69,7 +71,7 @@ async function captureEvidence(
   if (blob) {
     const form = new FormData();
     form.append("file", blob, "snapshot.jpg");
-    form.append("cameraId", "webcam");
+    form.append("cameraId", WEBCAM_CAMERA_ID);
     form.append("type", kind.type);
     form.append("confidence", String(confidence));
     try {
@@ -95,6 +97,7 @@ async function captureEvidence(
 
   onEvent?.({
     id: `${time}-${kind.type}`,
+    source: WEBCAM_SOURCE_LABEL,
     label: kind.label,
     confidence,
     time,
@@ -274,26 +277,16 @@ export default function WebcamCanvas({ onDetections, onEvent, paused }: Props) {
   }, []);
 
   return (
-    <div
-      ref={containerRef}
-      style={{ position: "relative", width: "100%", height: "100%", background: "#000" }}
-    >
+    <div ref={containerRef} className="relative w-full h-full bg-black">
       <video
         ref={videoRef}
         muted
         playsInline
-        style={{ width: "100%", height: "100%", display: "block", objectFit: "contain" }}
+        className="w-full h-full block object-contain"
       />
       <canvas
         ref={overlayRef}
-        style={{
-          position: "absolute",
-          top: 0,
-          left: 0,
-          width: "100%",
-          height: "100%",
-          pointerEvents: "none",
-        }}
+        className="absolute top-0 left-0 w-full h-full pointer-events-none"
       />
     </div>
   );
