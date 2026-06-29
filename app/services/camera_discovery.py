@@ -146,6 +146,7 @@ class CameraDiscoveryService(BaseCameraDiscoveryService):
                 if on_progress:
                     on_progress(list(cameras))
 
+            self._enable_unifi_protect_rtsp()
             unifi_cameras = self._fetch_unifi_cameras()
             if unifi_cameras:
                 cameras.extend(unifi_cameras)
@@ -248,6 +249,24 @@ class CameraDiscoveryService(BaseCameraDiscoveryService):
         except Exception as exc:
             logger.warning("UniFi camera discovery failed: %s", exc)
             return []
+
+    def _enable_unifi_protect_rtsp(self) -> None:
+        host = os.getenv("UNIFI_PROTECT_HOST")
+        username = os.getenv("UNIFI_PROTECT_USERNAME")
+        password = os.getenv("UNIFI_PROTECT_PASSWORD")
+        if not host or not username or not password:
+            return
+
+        try:
+            from app.services.unifi_protect import UniFiProtectService
+
+            UniFiProtectService(
+                host=host,
+                username=username,
+                password=password,
+            ).enable_rtsp_on_cameras()
+        except Exception as exc:
+            logger.warning("UniFi Protect RTSP enable failed: %s", exc)
 
     def _probe_rtsp(
         self,
