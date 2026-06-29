@@ -1,3 +1,7 @@
+# Camera config with real credentials — never commit.
+# Copy cameras.example.json → cameras.json and fill in your credentials locally.
+cameras.json
+
 venv/
 __pycache__/
 *.pyc
