@@ -4,154 +4,154 @@
       "id": "cam_010",
       "name": "LAN Camera 10",
       "host": "192.168.1.10",
-      "rtsp_url": "rtsp://admin:hk123456@192.168.1.10:554/cam/realmonitor?channel=1&subtype=0",
+      "rtsp_url": "rtsp://REPLACE_ME_USER:REPLACE_ME_PASSWORD@192.168.1.10:554/cam/realmonitor?channel=1&subtype=0",
       "enabled": true
     },
     {
       "id": "cam_011",
       "name": "LAN Camera 11",
       "host": "192.168.1.11",
-      "rtsp_url": "rtsp://admin:hk123456@192.168.1.11:554/cam/realmonitor?channel=1&subtype=0",
+      "rtsp_url": "rtsp://REPLACE_ME_USER:REPLACE_ME_PASSWORD@192.168.1.11:554/cam/realmonitor?channel=1&subtype=0",
       "enabled": true
     },
     {
       "id": "cam_027",
       "name": "LAN Camera 27",
       "host": "192.168.1.27",
-      "rtsp_url": "rtsp://admin:hk123456@192.168.1.27:554/cam/realmonitor?channel=1&subtype=0",
+      "rtsp_url": "rtsp://REPLACE_ME_USER:REPLACE_ME_PASSWORD@192.168.1.27:554/cam/realmonitor?channel=1&subtype=0",
       "enabled": true
     },
     {
       "id": "cam_034",
       "name": "LAN Camera 34",
       "host": "192.168.1.34",
-      "rtsp_url": "rtsp://admin:hk123456@192.168.1.34:554/cam/realmonitor?channel=1&subtype=0",
+      "rtsp_url": "rtsp://REPLACE_ME_USER:REPLACE_ME_PASSWORD@192.168.1.34:554/cam/realmonitor?channel=1&subtype=0",
       "enabled": true
     },
     {
       "id": "cam_108",
       "name": "LAN Camera 108",
       "host": "192.168.1.108",
-      "rtsp_url": "rtsp://admin:hk123456@192.168.1.108:554/cam/realmonitor?channel=1&subtype=0",
+      "rtsp_url": "rtsp://REPLACE_ME_USER:REPLACE_ME_PASSWORD@192.168.1.108:554/cam/realmonitor?channel=1&subtype=0",
       "enabled": true
     },
     {
       "id": "cam_109",
       "name": "LAN Camera 109",
       "host": "192.168.1.109",
-      "rtsp_url": "rtsp://admin:hk123456@192.168.1.109:554/cam/realmonitor?channel=1&subtype=0",
+      "rtsp_url": "rtsp://REPLACE_ME_USER:REPLACE_ME_PASSWORD@192.168.1.109:554/cam/realmonitor?channel=1&subtype=0",
       "enabled": true
     },
     {
       "id": "cam_110",
       "name": "LAN Camera 110",
       "host": "192.168.1.110",
-      "rtsp_url": "rtsp://admin:hk123456@192.168.1.110:554/cam/realmonitor?channel=1&subtype=0",
+      "rtsp_url": "rtsp://REPLACE_ME_USER:REPLACE_ME_PASSWORD@192.168.1.110:554/cam/realmonitor?channel=1&subtype=0",
       "enabled": true
     },
     {
       "id": "cam_111",
       "name": "LAN Camera 111",
       "host": "192.168.1.111",
-      "rtsp_url": "rtsp://admin:hk123456@192.168.1.111:554/cam/realmonitor?channel=1&subtype=0",
+      "rtsp_url": "rtsp://REPLACE_ME_USER:REPLACE_ME_PASSWORD@192.168.1.111:554/cam/realmonitor?channel=1&subtype=0",
       "enabled": true
     },
     {
       "id": "cam_112",
       "name": "LAN Camera 112",
       "host": "192.168.1.112",
-      "rtsp_url": "rtsp://admin:hk123456@192.168.1.112:554/cam/realmonitor?channel=1&subtype=0",
+      "rtsp_url": "rtsp://REPLACE_ME_USER:REPLACE_ME_PASSWORD@192.168.1.112:554/cam/realmonitor?channel=1&subtype=0",
       "enabled": true
     },
     {
       "id": "cam_113",
       "name": "LAN Camera 113",
       "host": "192.168.1.113",
-      "rtsp_url": "rtsp://admin:hk123456@192.168.1.113:554/cam/realmonitor?channel=1&subtype=0",
+      "rtsp_url": "rtsp://REPLACE_ME_USER:REPLACE_ME_PASSWORD@192.168.1.113:554/cam/realmonitor?channel=1&subtype=0",
       "enabled": true
     },
     {
       "id": "cam_049",
       "name": "LAN Camera 49",
       "host": "192.168.1.49",
-      "rtsp_url": "rtsp://admin:hk123456@192.168.1.49:554/cam/realmonitor?channel=1&subtype=0",
+      "rtsp_url": "rtsp://REPLACE_ME_USER:REPLACE_ME_PASSWORD@192.168.1.49:554/cam/realmonitor?channel=1&subtype=0",
       "enabled": true
     },
     {
       "id": "cam_061",
       "name": "LAN Camera 61",
       "host": "192.168.1.61",
-      "rtsp_url": "rtsp://admin:hk123456@192.168.1.61:554/cam/realmonitor?channel=1&subtype=0",
+      "rtsp_url": "rtsp://REPLACE_ME_USER:REPLACE_ME_PASSWORD@192.168.1.61:554/cam/realmonitor?channel=1&subtype=0",
       "enabled": true
     },
     {
       "id": "cam_070",
       "name": "LAN Camera 70",
       "host": "192.168.1.70",
-      "rtsp_url": "rtsp://admin:hk123456@192.168.1.70:554/cam/realmonitor?channel=1&subtype=0",
+      "rtsp_url": "rtsp://REPLACE_ME_USER:REPLACE_ME_PASSWORD@192.168.1.70:554/cam/realmonitor?channel=1&subtype=0",
       "enabled": true
     },
     {
       "id": "cam_089",
       "name": "LAN Camera 89",
       "host": "192.168.1.89",
-      "rtsp_url": "rtsp://admin:hk123456@192.168.1.89:554/cam/realmonitor?channel=1&subtype=0",
+      "rtsp_url": "rtsp://REPLACE_ME_USER:REPLACE_ME_PASSWORD@192.168.1.89:554/cam/realmonitor?channel=1&subtype=0",
       "enabled": true
     },
     {
       "id": "cam_091",
       "name": "LAN Camera 91",
       "host": "192.168.1.91",
-      "rtsp_url": "rtsp://admin:hk123456@192.168.1.91:554/cam/realmonitor?channel=1&subtype=0",
+      "rtsp_url": "rtsp://REPLACE_ME_USER:REPLACE_ME_PASSWORD@192.168.1.91:554/cam/realmonitor?channel=1&subtype=0",
       "enabled": true
     },
     {
       "id": "cam_125",
       "name": "LAN Camera 125",
       "host": "192.168.1.125",
-      "rtsp_url": "rtsp://admin:hk123456@192.168.1.125:554/cam/realmonitor?channel=1&subtype=0",
+      "rtsp_url": "rtsp://REPLACE_ME_USER:REPLACE_ME_PASSWORD@192.168.1.125:554/cam/realmonitor?channel=1&subtype=0",
       "enabled": true
     },
     {
       "id": "cam_134",
       "name": "LAN Camera 134",
       "host": "192.168.1.134",
-      "rtsp_url": "rtsp://admin:hk123456@192.168.1.134:554/cam/realmonitor?channel=1&subtype=0",
+      "rtsp_url": "rtsp://REPLACE_ME_USER:REPLACE_ME_PASSWORD@192.168.1.134:554/cam/realmonitor?channel=1&subtype=0",
       "enabled": true
     },
     {
       "id": "cam_180",
       "name": "LAN Camera 180",
       "host": "192.168.1.180",
-      "rtsp_url": "rtsp://admin:hk123456@192.168.1.180:554/cam/realmonitor?channel=1&subtype=0",
+      "rtsp_url": "rtsp://REPLACE_ME_USER:REPLACE_ME_PASSWORD@192.168.1.180:554/cam/realmonitor?channel=1&subtype=0",
       "enabled": true
     },
     {
       "id": "cam_182",
       "name": "LAN Camera 182",
       "host": "192.168.1.182",
-      "rtsp_url": "rtsp://admin:hk123456@192.168.1.182:554/cam/realmonitor?channel=1&subtype=0",
+      "rtsp_url": "rtsp://REPLACE_ME_USER:REPLACE_ME_PASSWORD@192.168.1.182:554/cam/realmonitor?channel=1&subtype=0",
       "enabled": true
     },
     {
       "id": "cam_183",
       "name": "LAN Camera 183",
       "host": "192.168.1.183",
-      "rtsp_url": "rtsp://admin:hk123456@192.168.1.183:554/cam/realmonitor?channel=1&subtype=0",
+      "rtsp_url": "rtsp://REPLACE_ME_USER:REPLACE_ME_PASSWORD@192.168.1.183:554/cam/realmonitor?channel=1&subtype=0",
       "enabled": true
     },
     {
       "id": "cam_184",
       "name": "LAN Camera 184",
       "host": "192.168.1.184",
-      "rtsp_url": "rtsp://admin:hk123456@192.168.1.184:554/cam/realmonitor?channel=1&subtype=0",
+      "rtsp_url": "rtsp://REPLACE_ME_USER:REPLACE_ME_PASSWORD@192.168.1.184:554/cam/realmonitor?channel=1&subtype=0",
       "enabled": true
     },
     {
       "id": "cam_216",
       "name": "LAN Camera 216",
       "host": "192.168.1.216",
-      "rtsp_url": "rtsp://admin:hk123456@192.168.1.216:554/cam/realmonitor?channel=1&subtype=0",
+      "rtsp_url": "rtsp://REPLACE_ME_USER:REPLACE_ME_PASSWORD@192.168.1.216:554/cam/realmonitor?channel=1&subtype=0",
       "enabled": true
     }
   ],

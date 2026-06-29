@@ -1,7 +1,6 @@
 """
 Shared frame-level detector using COCO weights.
-Loads the model once at import time; designed so a tracker can consume
-the returned list in a later pipeline stage.
+Model is loaded lazily on first inference call and cached for the process lifetime.
 """
 
 from pathlib import Path
@@ -9,7 +8,6 @@ from typing import List, Dict, Optional, Tuple
 
 import numpy as np
 import torch
-from ultralytics import YOLO
 
 # ── model ──────────────────────────────────────────────────────────────────────
 # yolo11s: YOLO11 Small, COCO-pretrained.  mAP50-95 ≈ 47 vs 39 for nano.
@@ -25,14 +23,24 @@ _COCO_FILTER = {"person", "bottle", "cup", "backpack", "handbag", "suitcase"}
 
 _device = "mps" if torch.backends.mps.is_available() else "cpu"
 
-if not _WEIGHTS.exists():
-    raise FileNotFoundError(f"COCO weights not found at {_WEIGHTS}")
-
-_model = YOLO(str(_WEIGHTS))
+_model = None
 
 # Cache set by detect_and_track each frame; consumed by diag_raw_detections
 # so the diag reuses pass-2 results instead of running a third inference.
 _diag_cache = None
+
+
+def _get_model():
+    global _model
+    if _model is None:
+        from ultralytics import YOLO
+        if not _WEIGHTS.exists():
+            raise FileNotFoundError(
+                f"COCO weights not found at {_WEIGHTS}. "
+                "Download yolo11s.pt and place it at training/checkpoints/yolo11s.pt."
+            )
+        _model = YOLO(str(_WEIGHTS))
+    return _model
 
 
 def _conf_threshold(cls_name: str) -> float:
@@ -57,7 +65,7 @@ def detect_frame(frame: np.ndarray) -> List[Dict]:
     Returns a list of dicts: {class, bbox (x1,y1,x2,y2), conf}.
     Filtered to _COCO_FILTER classes only with per-class thresholds.
     """
-    results = _model(frame, verbose=False, device=_device)[0]
+    results = _get_model()(frame, verbose=False, device=_device)[0]
     detections: List[Dict] = []
     if results.boxes is None:
         return detections
@@ -83,7 +91,7 @@ def diag_raw_detections(frame: np.ndarray) -> Tuple[int, List[float]]:
     bottle_confs — conf value for each bottle box at any confidence
     """
     global _diag_cache
-    results = _diag_cache if _diag_cache is not None else _model(frame, conf=0.01, verbose=False, device=_device)[0]
+    results = _diag_cache if _diag_cache is not None else _get_model()(frame, conf=0.01, verbose=False, device=_device)[0]
     total_boxes = len(results.boxes) if results.boxes is not None else 0
     bottle_confs: List[float] = []
     if results.boxes is not None:
@@ -112,14 +120,16 @@ def detect_and_track(frame: np.ndarray) -> List[Dict]:
     """
     global _diag_cache
 
+    model = _get_model()
+
     # Pass 1 — ByteTrack: stable IDs for confirmed tracks
-    track_results = _model.track(
+    track_results = model.track(
         frame, persist=True, tracker=_TRACKER,
         verbose=False, device=_device,
     )[0]
 
     # Pass 2 — plain NMS at conf=0.01: catches unactivated new tracks; cached for diag
-    raw_results = _model(frame, conf=0.01, verbose=False, device=_device)[0]
+    raw_results = model(frame, conf=0.01, verbose=False, device=_device)[0]
     _diag_cache = raw_results
 
     # Build dets from ByteTrack output

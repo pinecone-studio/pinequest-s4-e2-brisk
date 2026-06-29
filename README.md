@@ -169,16 +169,23 @@ Reads `cameras.json`, opens RTSP streams in background threads, runs smoking det
 
 Static cameras used by the CLI tools and legacy API. The Next.js UI uses the discovery API instead.
 
+**`cameras.json` is not tracked in git** — it contains real RTSP credentials and must never be committed. Set it up locally:
+
+```bash
+cp cameras.example.json cameras.json
+# Edit cameras.json and replace REPLACE_ME_USER / REPLACE_ME_PASSWORD with your real credentials
+```
+
+The file structure (see `cameras.example.json` for the full template):
+
 ```json
 {
   "cameras": [
     {
-      "id": "cam_01",
-      "name": "Lobby",
+      "id": "cam_010",
+      "name": "LAN Camera 10",
       "host": "192.168.1.10",
-      "rtsp_url": "rtsp://user:pass@192.168.1.10:554/stream1",
-      "floor": 1,
-      "zone": "lobby",
+      "rtsp_url": "rtsp://REPLACE_ME_USER:REPLACE_ME_PASSWORD@192.168.1.10:554/cam/realmonitor?channel=1&subtype=0",
       "enabled": true
     }
   ],
@@ -189,8 +196,6 @@ Static cameras used by the CLI tools and legacy API. The Next.js UI uses the dis
   "fusion_mode": "any"
 }
 ```
-
-> **Security note:** Never commit `cameras.json` with real credentials to a public repository. Add it to `.gitignore` and use `cameras.example.json` as a template.
 
 ---
 
@@ -260,7 +265,7 @@ scripts/
   train_trash_model.py        — Train litter model
   download_pretrained.py      — Download pretrained COCO weights
 
-cameras.json                  — Static camera config (CLI / legacy API)
+cameras.example.json          — Camera config template (copy to cameras.json and add real credentials — not tracked in git)
 requirements.txt              — Python dependencies
 package.json                  — Next.js (React 19, onnxruntime-web 1.27)
 next.config.ts                — Proxies /api/cameras/* → FastAPI
