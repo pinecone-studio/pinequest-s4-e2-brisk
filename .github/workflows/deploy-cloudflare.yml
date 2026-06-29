@@ -1,0 +1,35 @@
+name: Deploy to Cloudflare Pages
+
+# Auto-deploys the static webcam demo to Cloudflare Pages on every push to main.
+# Requires one GitHub secret: CLOUDFLARE_API_TOKEN (see repo Settings → Secrets).
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: # lets you trigger a deploy manually from the Actions tab
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build static site (prunes unused .wasm)
+        run: npm run build:static
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: 70c5710d35eacfea078ac1e1d14edf9c
+          command: pages deploy out --project-name=pinequest --branch=main

@@ -6,7 +6,7 @@
 // them aside for the duration of the build, then always restore them.
 //
 // Usage: npm run build:static  ->  outputs ./out
-import { existsSync, renameSync } from "node:fs";
+import { existsSync, renameSync, readdirSync, rmSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 
@@ -42,6 +42,22 @@ try {
   if (result.status !== 0) {
     process.exit(result.status ?? 1);
   }
+
+  // The ONNX runtime is loaded from the jsDelivr CDN (see lib/inference.ts
+  // ort.env.wasm.wasmPaths), so the bundled *.wasm files are never used — and
+  // one of them exceeds Cloudflare Pages' 25 MiB per-file limit. Prune every
+  // .wasm under out/ (public copies + the webpack-bundled _next/static/media one).
+  const pruneWasm = (dir) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) pruneWasm(full);
+      else if (entry.name.endsWith(".wasm")) {
+        rmSync(full);
+        console.log(`[build:static] pruned unused ${entry.name}`);
+      }
+    }
+  };
+  pruneWasm(join(root, "out"));
   console.log("[build:static] done -> ./out");
 } finally {
   if (moved) restore();
