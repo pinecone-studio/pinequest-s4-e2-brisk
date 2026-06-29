@@ -60,7 +60,7 @@ _Generated from code audit — 2026-06-29_
 
 ### Critical gaps
 
-1. **ONNX model files missing from the repo.** The frontend needs `public/models/pretrained.onnx`, `public/models/finetuned.onnx` (optional), `public/models/litter.onnx`, and `public/models/coco.onnx`. None are checked in. There is no download script for the frontend models — the browser UI will fail on first load with "Model load failed".
+1. ~~ONNX model files missing from the repo.~~ **Resolved** — `public/models/pretrained.onnx`, `public/models/litter.onnx`, and `public/models/coco.onnx` are all tracked in git and included on `git clone`. No download step required for the browser models.
 
 2. **Python model weights missing.** `app/detector.py` requires `models/smoking.pt`; `app/security_detector.py` requires `models/security.pt`. Neither is in the repo. The training scripts exist under `scripts/` but require Roboflow API keys and produce local training runs. The littering pipeline (`detect_frame.py`) requires `training/checkpoints/yolo11s.pt` which is not in the repo.
 
@@ -70,7 +70,7 @@ _Generated from code audit — 2026-06-29_
 
 5. **Littering pipeline is CLI-only; not wired into `app/api.py`.** `detect_frame.py`, `association.py`, `abandonment.py` are only exercised by `run.py`. The main FastAPI server (`app/api.py`) does not run the littering pipeline for live RTSP streams — `main.py` uses `app/detector.py` (smoking only) for its detection loop.
 
-6. **No ONNX models for the browser litter/smoking pipeline means zero coverage in the primary UI.** The polished Next.js dashboard is the "face" of the product, but without ONNX models it shows only "Loading models…" indefinitely or crashes.
+6. ~~No ONNX models for the browser litter/smoking pipeline.~~ **Resolved** — see item 1 above; browser ONNX models are committed to git.
 
 ### Functionality gaps
 
@@ -155,9 +155,8 @@ The Python backend has two separate detection systems that do not share state: t
 
 ### Must fix
 
-**1. Provide ONNX model files or a download script (L, impact: critical)**
-Without `public/models/pretrained.onnx`, `public/models/litter.onnx`, `public/models/coco.onnx`, the entire Next.js UI is non-functional. Add a `scripts/download_models.sh` or a `postinstall` npm hook that fetches them from a known source (Roboflow export, HuggingFace, or cloud storage).
-Files: `lib/modelConfig.ts`, `scripts/` (new script)
+**1. ~~Provide ONNX model files or a download script~~ — Resolved.**
+`public/models/pretrained.onnx`, `public/models/litter.onnx`, and `public/models/coco.onnx` are tracked in git and present on `git clone`.
 
 **2. Remove RTSP credentials from cameras.json (S, impact: security)**
 `cameras.json` is tracked by git with `hk123456` as password for 22 cameras. Rotate the credentials, add `cameras.json` to `.gitignore`, and document `cameras.example.json` as the template.

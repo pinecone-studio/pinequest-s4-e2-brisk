@@ -62,13 +62,15 @@ def process(frame: np.ndarray, detections: List[Dict],
     for vtype in violation_types:
         key = (camera_id, vtype)
         window = _windows[key]
+
+        if _is_on_cooldown(camera_id, vtype, cooldown_minutes):
+            window.append(False)  # drain stale True values so cooldown expiry needs fresh detections
+            continue
+
         window.append(True)
 
         # need temporal_window consecutive positive frames
         if len(window) < temporal_window or not all(window):
-            continue
-
-        if _is_on_cooldown(camera_id, vtype, cooldown_minutes):
             continue
 
         relevant = [d for d in detections if d["type"] == vtype]

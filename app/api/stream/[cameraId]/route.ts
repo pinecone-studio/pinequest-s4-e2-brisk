@@ -128,6 +128,11 @@ export async function GET(request: Request, { params }: StreamRouteContext) {
     },
   });
 
+  // Kill the decoder when the HTTP request is aborted (browser tab closed,
+  // navigation away) — ReadableStream.cancel() is not always reliable for
+  // detecting server-side disconnects in Next.js route handlers.
+  request.signal.addEventListener("abort", () => cleanupStream(), { once: true });
+
   return new Response(stream, {
     headers: {
       "Content-Type": `multipart/x-mixed-replace; boundary=${BOUNDARY}`,
