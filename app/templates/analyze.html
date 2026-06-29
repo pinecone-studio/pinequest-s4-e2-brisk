@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Aegis — Video Analysis</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    .analyze-main {
+      display: grid;
+      grid-template-columns: 1fr 420px;
+      gap: 16px;
+      padding: 0 24px 24px;
+    }
+    @media (max-width: 1000px) { .analyze-main { grid-template-columns: 1fr; } }
+
+    .panel {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px;
+    }
+    .panel + .panel { margin-top: 16px; }
+
+    .url-input {
+      width: 100%; padding: 11px 14px; border-radius: 8px;
+      border: 1px solid var(--border); background: var(--bg); color: var(--text);
+      font-size: 14px; outline: none;
+    }
+    .url-input:focus { border-color: var(--accent); }
+    .url-input::placeholder { color: var(--muted); }
+
+    .or-divider {
+      display: flex; align-items: center; text-align: center;
+      color: var(--muted); font-size: 12px; margin: 12px 0;
+    }
+    .or-divider::before, .or-divider::after {
+      content: ''; flex: 1; border-bottom: 1px solid var(--border);
+    }
+    .or-divider span { padding: 0 10px; text-transform: uppercase; letter-spacing: .08em; }
+
+    .dropzone {
+      border: 2px dashed var(--border);
+      border-radius: 10px;
+      padding: 28px;
+      text-align: center;
+      color: var(--muted);
+      cursor: pointer;
+      transition: border-color .15s, background .15s;
+    }
+    .dropzone:hover, .dropzone.drag { border-color: var(--accent); background: rgba(59,130,246,.06); }
+    .dropzone strong { color: var(--text); }
+
+    .row { display: flex; gap: 10px; align-items: center; margin-top: 12px; flex-wrap: wrap; }
+    .btn {
+      background: var(--accent); color: #fff; border: none;
+      padding: 10px 18px; border-radius: 8px; font-weight: 600; cursor: pointer;
+      font-size: 14px;
+    }
+    .btn:disabled { opacity: .5; cursor: not-allowed; }
+    .btn.secondary { background: transparent; border: 1px solid var(--border); color: var(--text); }
+    .filename { color: var(--muted); font-size: 13px; word-break: break-all; }
+
+    video {
+      width: 100%; border-radius: 8px; background: #000; margin-top: 14px; display: none;
+      max-height: 60vh;
+    }
+
+    .nav-link { margin-left: auto; color: var(--muted); text-decoration: none; font-size: 13px; }
+    .nav-link:hover { color: var(--accent); }
+
+    /* Briefing */
+    .briefing-empty { padding: 40px 16px; text-align: center; color: var(--muted); }
+
+    .log { list-style: none; margin: 0 0 14px; padding: 0; }
+    .log li {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 12.5px; color: var(--muted); padding: 4px 0;
+    }
+    .log li .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--border); flex-shrink: 0; }
+    .log li.active .dot { background: var(--yellow); animation: pulse 1.2s infinite; }
+    .log li.done .dot { background: var(--green); }
+    .log li.done { color: var(--text); }
+    .log li.err .dot { background: var(--red); }
+    .log li.err { color: var(--red); }
+
+    .summary {
+      border-radius: 8px; padding: 12px 14px; margin-bottom: 14px; font-weight: 600;
+      display: none;
+    }
+    .summary.hit { background: rgba(239,68,68,.12); border: 1px solid var(--red); color: #fca5a5; display: block; }
+    .summary.clear { background: rgba(34,197,94,.10); border: 1px solid var(--green); color: #86efac; display: block; }
+
+    .det {
+      display: flex; gap: 12px; padding: 12px; border: 1px solid var(--border);
+      border-radius: 8px; margin-bottom: 10px; animation: slideIn .3s ease;
+    }
+    .det-thumb { width: 96px; height: 64px; object-fit: cover; border-radius: 6px; background: #111; flex-shrink: 0; }
+    .det-body { flex: 1; min-width: 0; }
+    .det-badge {
+      display: inline-block; padding: 2px 9px; border-radius: 4px; font-size: 11px;
+      font-weight: 700; letter-spacing: .04em; margin-bottom: 5px; text-transform: uppercase;
+    }
+    .det-badge.violence, .det-badge.weapon, .det-badge.smoking { background: var(--red); color: #fff; }
+    .det-badge.vandalism, .det-badge.litter, .det-badge.garbage { background: var(--orange); color: #fff; }
+    .det-badge.disturbance { background: #7c3aed; color: #fff; }
+    .det-meta { font-size: 12.5px; color: var(--muted); }
+    .det-meta b { color: var(--text); }
+    .src-pill {
+      display: inline-block; font-size: 10.5px; font-weight: 700; padding: 1px 7px;
+      border-radius: 999px; margin-left: 6px; border: 1px solid var(--border); color: var(--muted);
+      text-transform: uppercase;
+    }
+    .src-pill.audio { color: var(--accent); border-color: var(--accent); }
+    .src-pill.video { color: var(--green); border-color: var(--green); }
+    .src-pill.both  { color: var(--yellow); border-color: var(--yellow); }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="status-dot"></div>
+  <div>
+    <h1>Aegis</h1>
+    <div class="subtitle">Video Analysis &bull; Upload &amp; Detect</div>
+  </div>
+  <a class="nav-link" href="/">&larr; Live Dashboard</a>
+</header>
+
+<div class="analyze-main">
+  <!-- Left: upload + player -->
+  <div>
+    <div class="panel">
+      <div class="section-title">Add Footage</div>
+
+      <input type="url" id="urlInput" class="url-input"
+             placeholder="Paste a video link (https://….mp4 or rtsp://…)">
+
+      <div class="or-divider"><span>or</span></div>
+
+      <div class="dropzone" id="dropzone">
+        <div>Drag &amp; drop a video here, or <strong>click to browse</strong></div>
+        <div style="font-size:12px;margin-top:6px;">MP4 / MOV / WEBM &mdash; video + audio are both analyzed</div>
+      </div>
+      <input type="file" id="fileInput" accept="video/*" hidden>
+      <div class="row">
+        <button class="btn" id="analyzeBtn" disabled>Analyze</button>
+        <span class="filename" id="filename">No file or link selected</span>
+      </div>
+      <video id="player" controls></video>
+    </div>
+  </div>
+
+  <!-- Right: briefing -->
+  <div class="panel">
+    <div class="section-title">Detection Briefing</div>
+    <div id="summary" class="summary"></div>
+    <ul class="log" id="log"></ul>
+    <div id="detections"></div>
+    <div class="briefing-empty" id="briefingEmpty">Upload a video to begin analysis.</div>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+const fileInput = document.getElementById('fileInput');
+const urlInput  = document.getElementById('urlInput');
+const dropzone  = document.getElementById('dropzone');
+const analyzeBtn = document.getElementById('analyzeBtn');
+const filenameEl = document.getElementById('filename');
+const player    = document.getElementById('player');
+const logEl     = document.getElementById('log');
+const detEl     = document.getElementById('detections');
+const summaryEl = document.getElementById('summary');
+const emptyEl   = document.getElementById('briefingEmpty');
+
+let selectedFile = null;
+
+const BASE_STAGES = [
+  ['received', 'Source received'],
+  ['loading_models', 'Loading detection models'],
+  ['video_analyzing', 'Analyzing video (YOLO)'],
+  ['audio_analyzing', 'Analyzing audio (YAMNet)'],
+  ['fusing', 'Fusing signals'],
+  ['complete', 'Analysis complete'],
+];
+
+function isDirectMedia(url) {
+  return /\.(mp4|mov|mkv|webm|m4v)(\?|$)/i.test(url);
+}
+
+function refreshState() {
+  const hasUrl = urlInput.value.trim().length > 0;
+  analyzeBtn.disabled = !(selectedFile || hasUrl);
+  if (selectedFile) filenameEl.textContent = selectedFile.name;
+  else if (hasUrl) filenameEl.textContent = urlInput.value.trim();
+  else filenameEl.textContent = 'No file or link selected';
+}
+
+function pickFile(file) {
+  if (!file) return;
+  selectedFile = file;
+  urlInput.value = '';
+  player.src = URL.createObjectURL(file);
+  player.style.display = 'block';
+  refreshState();
+}
+
+dropzone.addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', e => pickFile(e.target.files[0]));
+dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('drag'); });
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag'));
+dropzone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropzone.classList.remove('drag');
+  pickFile(e.dataTransfer.files[0]);
+});
+urlInput.addEventListener('input', () => {
+  if (urlInput.value.trim()) {
+    selectedFile = null;
+    const u = urlInput.value.trim();
+    // Best-effort inline preview for direct media links.
+    if (isDirectMedia(u)) { player.src = u; player.style.display = 'block'; }
+    else { player.removeAttribute('src'); player.style.display = 'none'; }
+  }
+  refreshState();
+});
+
+function resetBriefing(stages) {
+  emptyEl.style.display = 'none';
+  detEl.innerHTML = '';
+  summaryEl.className = 'summary';
+  summaryEl.textContent = '';
+  logEl.innerHTML = stages.map(([k, label]) =>
+    `<li data-stage="${k}"><span class="dot"></span><span>${label}</span></li>`
+  ).join('');
+}
+
+function setStage(stage, state, extra) {
+  const li = logEl.querySelector(`li[data-stage="${stage}"]`);
+  if (!li) return;
+  // mark all prior as done
+  let passed = false;
+  logEl.querySelectorAll('li').forEach(el => {
+    if (el === li) passed = true;
+    else if (!passed && !el.classList.contains('err')) { el.classList.remove('active'); el.classList.add('done'); }
+  });
+  li.classList.remove('done');
+  li.classList.add(state || 'active');
+  if (extra) {
+    const span = li.querySelector('span:last-child');
+    span.textContent = span.textContent.replace(/ —.*$/, '') + ' — ' + extra;
+  }
+}
+
+function pct(x) { return Math.round((x || 0) * 100); }
+
+function addDetection(d) {
+  const cls = d.vtype || 'violence';
+  const conf = pct(d.confidence);
+  const thumb = d.evidence_url
+    ? `<img class="det-thumb" src="${d.evidence_url}" onerror="this.style.opacity=.15">`
+    : `<div class="det-thumb"></div>`;
+  const audioLine = d.audio_label
+    ? `<div class="det-meta">Sound: <b>${d.audio_label}</b></div>` : '';
+  const parts = [];
+  if (d.video_conf) parts.push(`video ${pct(d.video_conf)}%`);
+  if (d.audio_conf) parts.push(`audio ${pct(d.audio_conf)}%`);
+
+  const el = document.createElement('div');
+  el.className = 'det';
+  el.innerHTML = `
+    ${thumb}
+    <div class="det-body">
+      <span class="det-badge ${cls}">${cls}</span>
+      <span class="src-pill ${d.source}">${d.source}</span>
+      <div class="det-meta"><b>${conf}%</b> confidence ${parts.length ? '(' + parts.join(', ') + ')' : ''}</div>
+      ${audioLine}
+    </div>`;
+  detEl.appendChild(el);
+}
+
+async function analyze() {
+  const urlVal = urlInput.value.trim();
+  if (!selectedFile && !urlVal) return;
+  const isUrl = !selectedFile && !!urlVal;
+
+  analyzeBtn.disabled = true;
+  analyzeBtn.textContent = 'Analyzing…';
+
+  const stages = isUrl ? [['fetching_url', 'Fetching link'], ...BASE_STAGES] : BASE_STAGES;
+  resetBriefing(stages);
+  setStage(isUrl ? 'fetching_url' : 'received', 'active');
+
+  let detectionCount = 0;
+  const seenTypes = new Set();
+
+  try {
+    const form = new FormData();
+    if (isUrl) form.append('url', urlVal);
+    else form.append('file', selectedFile);
+    const res = await fetch('/api/analyze', { method: 'POST', body: form });
+    if (!res.ok || !res.body) throw new Error('Server error ' + res.status);
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop();
+      for (const lineStr of lines) {
+        if (!lineStr.trim()) continue;
+        const msg = JSON.parse(lineStr);
+        handleMsg(msg);
+      }
+    }
+
+    function handleMsg(msg) {
+      if (msg.type === 'detection') {
+        detectionCount++;
+        seenTypes.add(msg.vtype);
+        addDetection(msg);
+        return;
+      }
+      switch (msg.stage) {
+        case 'fetching_url': setStage('fetching_url', 'active'); break;
+        case 'received': setStage('received', 'done'); setStage('loading_models', 'active'); break;
+        case 'loading_models': setStage('loading_models', 'done'); setStage('video_analyzing', 'active'); break;
+        case 'video_done': {
+          const types = Object.keys(msg.best || {});
+          setStage('video_analyzing', 'done',
+            types.length ? types.join(', ') : 'nothing seen');
+          setStage('audio_analyzing', 'active');
+          break;
+        }
+        case 'audio_done': {
+          setStage('audio_analyzing', 'done',
+            (msg.events && msg.events.length) ? msg.events.length + ' sound(s)' : 'no flagged sounds');
+          setStage('fusing', 'active');
+          break;
+        }
+        case 'audio_skipped':
+          setStage('audio_analyzing', 'done', 'skipped');
+          setStage('fusing', 'active');
+          break;
+        case 'fusing': setStage('fusing', 'active'); break;
+        case 'complete':
+          setStage('fusing', 'done');
+          setStage('complete', 'done');
+          showSummary(detectionCount, seenTypes);
+          break;
+        case 'error':
+          setStage('complete', 'err', msg.message);
+          summaryEl.className = 'summary hit';
+          summaryEl.textContent = 'Error: ' + msg.message;
+          break;
+      }
+    }
+  } catch (err) {
+    summaryEl.className = 'summary hit';
+    summaryEl.textContent = 'Error: ' + err.message;
+  } finally {
+    analyzeBtn.disabled = false;
+    analyzeBtn.textContent = 'Analyze';
+  }
+}
+
+function showSummary(count, types) {
+  if (count > 0) {
+    summaryEl.className = 'summary hit';
+    summaryEl.textContent = `⚠ ${count} detection(s): ${Array.from(types).join(', ')}`;
+  } else {
+    summaryEl.className = 'summary clear';
+    summaryEl.textContent = '✓ No violations detected in this clip.';
+  }
+}
+
+analyzeBtn.addEventListener('click', analyze);
+</script>
+</body>
+</html>

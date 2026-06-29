@@ -13,7 +13,7 @@ import logging
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 
-from app.audio_detector import AudioEvent
+from app.audio_detector import AudioEvent, best_events_by_type
 
 logger = logging.getLogger(__name__)
 
@@ -45,14 +45,6 @@ def _best_video_by_type(frame_results: List[Dict]) -> Dict[str, Dict]:
     return best
 
 
-def _best_audio_by_type(audio_events: List[AudioEvent]) -> Dict[str, AudioEvent]:
-    best: Dict[str, AudioEvent] = {}
-    for ev in audio_events:
-        if ev.vtype not in best or ev.confidence > best[ev.vtype].confidence:
-            best[ev.vtype] = ev
-    return best
-
-
 def fuse(
     frame_results: List[Dict],
     audio_events: List[AudioEvent],
@@ -67,7 +59,7 @@ def fuse(
     audio_weight = cfg.get("fusion_audio_weight", 0.4)
 
     video_best = _best_video_by_type(frame_results)
-    audio_best = _best_audio_by_type(audio_events)
+    audio_best = best_events_by_type(audio_events)
 
     all_types = set(video_best.keys()) | set(audio_best.keys())
     alerts: List[FusedAlert] = []

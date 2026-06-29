@@ -1,8 +1,10 @@
 """
 Audio event detection for motion-triggered camera clips.
 
-Uses YAMNet (AudioSet) to flag violence/vandalism-related sounds:
-screams, glass breaking, impacts, explosions, gunshots, etc.
+Uses YAMNet (AudioSet) to flag security-relevant sounds. Labels are filtered
+in code — we do not alert on gunshot classes. Tune SECURITY_SOUND_KEYWORDS
+and KEYWORD_TO_TYPE rather than retraining YAMNet unless you build a custom
+classifier on top of its embeddings.
 
 Usage:
     from app.audio_detector import analyze_clip
@@ -22,41 +24,77 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
+# YAMNet labels we never treat as alerts (even if they score highest)
+BLOCKED_LABEL_KEYWORDS = [
+    "Gunshot, gunfire",
+    "Machine gun",
+    "Cap gun",
+]
+
 # YAMNet / AudioSet display names we treat as security-relevant
 SECURITY_SOUND_KEYWORDS = {
-    "violence": [
-        "Scream", "Yell", "Shout", "Groan", "Grunt", "Crying, sobbing",
-        "Slap, smack", "Punch", "Whack, thwack", "Smash, crash",
-        "Explosion", "Gunshot, gunfire", "Machine gun", "Burst, pop",
-        "Glass", "Shatter", "Breaking", "Crack", "Snap",
-        "Scrape", "Scratch", "Hammer", "Power tool", "Drill",
-        "Alarm", "Siren", "Emergency vehicle",
+    "fighting": [
+        "Screaming", "Yell", "Shout", "Children shouting",
+        "Groan", "Grunt", "Crying, sobbing",
+    ],
+    "hitting": [
+        "Slap, smack", "Whack, thwack", "Thump, thud", "Bang",
+        "Smash, crash",
+    ],
+    "explosion": [
+        "Explosion", "Boom",
+    ],
+    "loud_noise": [
+        "Music", "Crowd", "Cheering", "Hubbub, speech noise, speech babble",
+        "Dance music", "Electronic dance music", "Electronic music",
+        "Rock music", "Pop music", "Drum", "Bass drum", "Drum roll",
     ],
 }
 
-# Map keyword hits to violation types surfaced in the dashboard
+# Map YAMNet display names → dashboard violation types
 KEYWORD_TO_TYPE = {
-    "Scream": "violence",
+    # fighting
+    "Screaming": "violence",
     "Yell": "violence",
     "Shout": "violence",
+    "Children shouting": "violence",
     "Groan": "violence",
+    "Grunt": "violence",
     "Crying, sobbing": "violence",
+    # hitting / impacts
     "Slap, smack": "violence",
-    "Punch": "violence",
     "Whack, thwack": "violence",
-    "Smash, crash": "vandalism",
+    "Thump, thud": "violence",
+    "Bang": "violence",
+    "Smash, crash": "violence",
+    # explosion
     "Explosion": "violence",
-    "Gunshot, gunfire": "violence",
-    "Machine gun": "violence",
-    "Glass": "vandalism",
-    "Shatter": "vandalism",
-    "Breaking": "vandalism",
-    "Crack": "vandalism",
-    "Snap": "vandalism",
-    "Hammer": "vandalism",
-    "Power tool": "vandalism",
-    "Drill": "vandalism",
+    "Boom": "violence",
+    # loud party / disturbance
+    "Music": "disturbance",
+    "Crowd": "disturbance",
+    "Cheering": "disturbance",
+    "Hubbub, speech noise, speech babble": "disturbance",
+    "Dance music": "disturbance",
+    "Electronic dance music": "disturbance",
+    "Electronic music": "disturbance",
+    "Rock music": "disturbance",
+    "Pop music": "disturbance",
+    "Drum": "disturbance",
+    "Bass drum": "disturbance",
+    "Drum roll": "disturbance",
 }
+
+# Per-category confidence bars (YAMNet scores are soft — impacts are often brief)
+IMPACT_AUDIO_THRESHOLD = 0.22        # hitting / fighting
+EXPLOSION_AUDIO_THRESHOLD = 0.52     # loud thuds confuse YAMNet — require high confidence
+DISTURBANCE_AUDIO_THRESHOLD = 0.42   # music / party
+
+# When several labels match the same second, prefer hitting over explosion
+_GROUP_PRIORITY = {"hitting": 0, "fighting": 1, "explosion": 2, "loud_noise": 3, "other": 4}
+
+# How many top classes to inspect per ~1s YAMNet frame (not argmax-only)
+TOP_K_PER_FRAME = 15
 
 _model = None
 _class_names: Optional[List[str]] = None
@@ -125,7 +163,17 @@ def _load_wav(path: Path) -> np.ndarray:
     return audio
 
 
+def _is_blocked_label(display_name: str) -> bool:
+    lower = display_name.lower()
+    for blocked in BLOCKED_LABEL_KEYWORDS:
+        if blocked.lower() in lower:
+            return True
+    return False
+
+
 def _match_security_label(display_name: str) -> Optional[str]:
+    if _is_blocked_label(display_name):
+        return None
     for keyword, vtype in KEYWORD_TO_TYPE.items():
         if keyword.lower() in display_name.lower():
             return vtype
@@ -136,12 +184,41 @@ def _match_security_label(display_name: str) -> Optional[str]:
     return None
 
 
+def _sound_group(label: str) -> str:
+    lower = label.lower()
+    for group_name, keywords in SECURITY_SOUND_KEYWORDS.items():
+        for keyword in keywords:
+            if keyword.lower() in lower:
+                return group_name
+    return "other"
+
+
+def _min_score_for_label(label: str, vtype: str, default: float) -> float:
+    group = _sound_group(label)
+    if group == "explosion":
+        return EXPLOSION_AUDIO_THRESHOLD
+    if group == "loud_noise" or vtype == "disturbance":
+        return DISTURBANCE_AUDIO_THRESHOLD
+    if group in ("hitting", "fighting") or vtype == "violence":
+        return min(default, IMPACT_AUDIO_THRESHOLD)
+    return default
+
+
+def _event_rank(ev: AudioEvent) -> tuple:
+    """Lower tuple = preferred when picking one label per time bucket."""
+    return (_GROUP_PRIORITY.get(_sound_group(ev.label), 9), -ev.confidence)
+
+
 def analyze_wav(
     wav_path: str | Path,
     threshold: float = 0.35,
     clip_duration: float = 0.96,
 ) -> List[AudioEvent]:
-    """Run YAMNet on a WAV file and return security-relevant events."""
+    """Run YAMNet on a WAV file and return security-relevant events.
+
+    Inspects the top-K class scores each frame (not just argmax) so brief
+    impacts are not drowned out by continuous background music.
+    """
     model, class_names = _load_yamnet()
     wav_path = Path(wav_path)
     waveform = _load_wav(wav_path)
@@ -150,35 +227,43 @@ def analyze_wav(
     scores_np = scores.numpy()
 
     events: List[AudioEvent] = []
+    k = min(TOP_K_PER_FRAME, scores_np.shape[1] if scores_np.ndim > 1 else len(class_names))
+
     for frame_idx, frame_scores in enumerate(scores_np):
-        top_idx = int(np.argmax(frame_scores))
-        top_score = float(frame_scores[top_idx])
-        if top_score < threshold:
-            continue
-
-        label = class_names[top_idx]
-        vtype = _match_security_label(label)
-        if vtype is None:
-            continue
-
+        top_indices = np.argpartition(frame_scores, -k)[-k:]
         start = frame_idx * clip_duration
-        events.append(AudioEvent(
-            label=label,
-            vtype=vtype,
-            confidence=top_score,
-            start_sec=round(start, 2),
-            end_sec=round(start + clip_duration, 2),
-        ))
 
-    # Deduplicate: keep highest-confidence event per (vtype, ~1s bucket)
+        for idx in top_indices:
+            score = float(frame_scores[idx])
+            label = class_names[int(idx)]
+            vtype = _match_security_label(label)
+            if vtype is None:
+                continue
+            if score < _min_score_for_label(label, vtype, threshold):
+                continue
+
+            events.append(AudioEvent(
+                label=label,
+                vtype=vtype,
+                confidence=score,
+                start_sec=round(start, 2),
+                end_sec=round(start + clip_duration, 2),
+            ))
+
+    # Deduplicate: one event per (vtype, ~1s bucket); prefer hitting over explosion
     best: dict[tuple[str, int], AudioEvent] = {}
     for ev in events:
         bucket = int(ev.start_sec)
         key = (ev.vtype, bucket)
-        if key not in best or ev.confidence > best[key].confidence:
+        if key not in best or _event_rank(ev) < _event_rank(best[key]):
             best[key] = ev
 
-    return sorted(best.values(), key=lambda e: e.confidence, reverse=True)
+    # Prefer violence/impact over disturbance when sorting for display
+    priority = {"violence": 0, "disturbance": 1, "vandalism": 2}
+    return sorted(
+        best.values(),
+        key=lambda e: (priority.get(e.vtype, 9), -e.confidence),
+    )
 
 
 def analyze_clip(
@@ -202,6 +287,15 @@ def analyze_clip(
     finally:
         if not keep_wav:
             wav_path.unlink(missing_ok=True)
+
+
+def best_events_by_type(events: List[AudioEvent]) -> dict[str, AudioEvent]:
+    """Pick the best audio hit per vtype (hitting beats explosion at same confidence)."""
+    best: dict[str, AudioEvent] = {}
+    for ev in events:
+        if ev.vtype not in best or _event_rank(ev) < _event_rank(best[ev.vtype]):
+            best[ev.vtype] = ev
+    return best
 
 
 def top_event(events: List[AudioEvent]) -> Optional[AudioEvent]:
