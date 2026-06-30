@@ -179,7 +179,7 @@ export async function fetchDiscoverySubnet(): Promise<string> {
   return body.subnets?.join(", ") ?? body.subnet;
 }
 
-export async function startDiscoveryScan(_subnet?: string): Promise<void> {
+export async function startDiscoveryScan(subnet?: string): Promise<void> {
   const serviceResponse = await fetchFromCameraService("/discover/start", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -193,7 +193,7 @@ export async function startDiscoveryScan(_subnet?: string): Promise<void> {
   const response = await fetchFromPythonDiscovery("/start", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ targets: [subnet] }),
+    body: JSON.stringify({ targets: subnet ? [subnet] : [] }),
   });
   if (!response.ok) {
     throw new Error(await parseApiError(response));
