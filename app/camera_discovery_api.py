@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import logging
 import os
 import socket
 import subprocess
@@ -13,6 +14,8 @@ from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
 from app.services.camera_discovery_state import CameraDiscoveryScanManager
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/cameras/discovery", tags=["Camera Discovery"])
 scan_manager = CameraDiscoveryScanManager(timeout_seconds=300)
@@ -94,7 +97,7 @@ async def get_camera_discovery_subnet() -> DiscoverySubnetResponse:
     """
     Detect the local network subnet used for camera discovery.
     """
-    return DiscoverySubnetResponse(subnet=_detect_local_subnet())
+    return DiscoverySubnetResponse(subnet=", ".join(_detect_all_local_subnets()))
 
 
 @router.get(
@@ -119,7 +122,22 @@ def _resolve_targets(request_targets: Optional[List[str]]) -> List[str]:
     if env_targets:
         return [target.strip() for target in env_targets.split(",") if target.strip()]
 
-    return _targets_from_camera_config()
+    config_targets = _targets_from_camera_config()
+    if config_targets:
+        return config_targets
+
+    try:
+        subnets = _detect_all_local_subnets()
+        if subnets:
+            return subnets
+    except Exception as exc:
+        logger.warning("Could not detect local subnets for camera discovery: %s", exc)
+
+    try:
+        return [_detect_local_subnet()]
+    except Exception as exc:
+        logger.warning("Could not detect local subnet for camera discovery: %s", exc)
+        return []
 
 
 def _targets_from_camera_config(path: str = "cameras.json") -> List[str]:
@@ -144,6 +162,43 @@ def _targets_from_camera_config(path: str = "cameras.json") -> List[str]:
         targets.add(str(network))
 
     return sorted(targets)
+
+
+def _detect_all_local_subnets() -> List[str]:
+    subnets = set()
+
+    try:
+        ifoutput = subprocess.check_output(
+            ["ifconfig"],
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=3,
+        )
+        current_ip = None
+        for line in ifoutput.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("inet ") and "127.0.0.1" not in stripped:
+                parts = stripped.split()
+                if len(parts) >= 2:
+                    current_ip = parts[1]
+            elif stripped.startswith("status:") and current_ip:
+                if "active" in stripped.lower():
+                    try:
+                        network = ipaddress.ip_network(f"{current_ip}/24", strict=False)
+                        subnets.add(str(network))
+                    except ValueError:
+                        pass
+                current_ip = None
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        pass
+
+    if not subnets:
+        try:
+            subnets.add(_detect_local_subnet())
+        except RuntimeError:
+            return []
+
+    return sorted(subnets, key=lambda s: (0 if s.startswith("192.168.1.") else 1, s))
 
 
 def _detect_local_subnet() -> str:

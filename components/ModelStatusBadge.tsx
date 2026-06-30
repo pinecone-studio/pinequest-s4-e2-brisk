@@ -14,33 +14,16 @@ export default function ModelStatusBadge({ state }: Props) {
   }[state];
 
   return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 6,
-        background: "rgba(255,255,255,0.05)",
-        border: "1px solid var(--border)",
-        borderRadius: 6,
-        padding: "3px 10px",
-        fontSize: 11,
-        color: "var(--muted)",
-      }}
-    >
+    <div className="flex items-center gap-1.5 bg-[rgba(255,255,255,0.05)] border border-[#272727] rounded-md px-2.5 py-[3px] text-[11px] text-[#8a8a8a]">
       <span
+        className="w-[7px] h-[7px] rounded-full shrink-0"
         style={{
-          width: 7,
-          height: 7,
-          borderRadius: "50%",
           background: dot.color,
-          flexShrink: 0,
           boxShadow: state === "ready" ? `0 0 5px ${dot.color}` : undefined,
         }}
       />
-      <span style={{ fontWeight: 600, letterSpacing: "0.04em" }}>
-        {ACTIVE_MODEL}
-      </span>
-      <span style={{ color: "#555" }}>&bull;</span>
+      <span className="font-semibold tracking-[0.04em]">{ACTIVE_MODEL}</span>
+      <span className="text-[#555]">&bull;</span>
       <span>{dot.label}</span>
     </div>
   );

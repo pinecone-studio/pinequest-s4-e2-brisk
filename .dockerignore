@@ -1,0 +1,29 @@
+# Keep the Render image small — exclude everything the backend doesn't need at runtime.
+.git
+venv/
+__pycache__/
+*.pyc
+
+# Frontend (deployed separately to Cloudflare, not needed by the Python API)
+node_modules/
+.next/
+out/
+
+# Training data & datasets — never needed to serve the API
+models/smoking-dataset/
+models/security-dataset/
+models/custom-smoking/
+models/hard-negatives/
+models/trash-dataset/
+runs/
+training/
+
+# Local working dirs / outputs
+evidence/
+logs/
+input/
+output/
+data/
+*.log
+*.mp4
+.DS_Store

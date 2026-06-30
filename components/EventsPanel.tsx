@@ -1,7 +1,7 @@
 "use client";
 
 import type { EvidenceEvent } from "@/lib/evidence";
-import { SMOKING_THRESHOLD, LITTER_THRESHOLD } from "@/lib/modelConfig";
+import { SMOKING_THRESHOLD } from "@/lib/modelConfig";
 
 const CIGARETTE_COLOR = "#ef4444";
 const VAPE_COLOR = "#a855f7";
@@ -29,169 +29,102 @@ function formatTime(ms: number): string {
 
 export default function EventsPanel({ events, live = false }: Props) {
   return (
-    <div
-      style={{
-        background: "var(--card)",
-        border: "1px solid var(--border)",
-        borderRadius: 10,
-        display: "flex",
-        flexDirection: "column",
-        overflow: "hidden",
-        flex: 1,
-        minHeight: 0,
-      }}
-    >
-      <div
-        style={{
-          padding: "14px 16px 12px",
-          borderBottom: "1px solid var(--border)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          flexShrink: 0,
-        }}
-      >
-        <span
-          style={{
-            fontSize: 11,
-            fontWeight: 600,
-            color: "var(--muted)",
-            textTransform: "uppercase",
-            letterSpacing: "0.08em",
-          }}
-        >
+    <div className="bg-[#1a1a1a] border border-[#272727] rounded-[10px] flex flex-col overflow-hidden flex-1 min-h-0">
+      <div className="px-4 pt-[14px] pb-3 border-b border-[#272727] flex items-center justify-between shrink-0">
+        <span className="text-[11px] font-semibold text-[#8a8a8a] uppercase tracking-[0.08em]">
           Events
         </span>
         {events.length > 0 ? (
-          <span
-            style={{
-              fontSize: 11,
-              fontWeight: 700,
-              color: CIGARETTE_COLOR,
-              background: "rgba(239,68,68,0.12)",
-              padding: "2px 8px",
-              borderRadius: 4,
-            }}
-          >
+          <span className="text-[11px] font-bold text-[#ef4444] bg-[rgba(239,68,68,0.12)] px-2 py-0.5 rounded">
             {events.length}
           </span>
         ) : (
           live && (
-            <span
-              style={{
-                fontSize: 11,
-                color: "var(--muted)",
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-              }}
-            >
-              <span
-                style={{
-                  width: 7,
-                  height: 7,
-                  borderRadius: "50%",
-                  background: "var(--green)",
-                  boxShadow: "0 0 6px var(--green)",
-                }}
-              />
+            <span className="text-[11px] text-[#8a8a8a] flex items-center gap-1.5">
+              <span className="w-[7px] h-[7px] rounded-full bg-[#22c55e] shadow-[0_0_6px_#22c55e]" />
               Live
             </span>
           )
         )}
       </div>
 
-      <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
+      <div className="flex-1 overflow-y-auto min-h-0">
         {events.length === 0 ? (
-          <div
-            style={{
-              padding: "48px 24px",
-              textAlign: "center",
-              color: "var(--muted)",
-              fontSize: 13,
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              gap: 8,
-            }}
-          >
-            <span style={{ fontSize: 22, opacity: 0.4 }}>&#128276;</span>
+          <div className="px-6 py-12 text-center text-[#8a8a8a] text-[13px] flex flex-col items-center gap-2">
+            <span className="text-[22px] opacity-40">&#128276;</span>
             No events
-            <span style={{ fontSize: 11, color: "#555" }}>
-              Smoking &amp; litter detections appear here (Cigarette / Vape / Litter)
+            <span className="text-[11px] text-[#555]">
+              Smoking &amp; littering events appear here (Cigarette / Vape / Litter)
+            </span>
+            <span className="text-[10px] text-[#444] max-w-[220px]">
+              Littering = hold object, drop on floor, then walk away (~8s)
             </span>
           </div>
         ) : (
           events.map((ev) => {
             const pct = Math.round(ev.confidence * 100);
-            const color = colorFor(ev.label);
+            const color = ev.info ? "#8a8a8a" : colorFor(ev.label);
             return (
               <div
                 key={ev.id}
-                style={{
-                  display: "flex",
-                  gap: 12,
-                  padding: "12px 16px",
-                  borderBottom: "1px solid var(--border)",
-                  animation: "evIn 0.25s ease",
-                }}
+                className="flex gap-3 px-4 py-3 border-b border-[#272727] animate-[evIn_0.25s_ease]"
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={ev.thumb}
                   alt="evidence"
-                  style={{
-                    width: 72,
-                    height: 48,
-                    objectFit: "cover",
-                    borderRadius: 4,
-                    flexShrink: 0,
-                    background: "#000",
-                    border: "1px solid var(--border)",
-                  }}
+                  className="w-[72px] h-12 object-cover rounded shrink-0 bg-black border border-[#272727]"
                 />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      marginBottom: 4,
-                    }}
-                  >
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between mb-1">
                     <span
-                      style={{
-                        fontWeight: 700,
-                        fontSize: 12,
-                        color,
-                        textTransform: "uppercase",
-                        letterSpacing: "0.04em",
-                      }}
+                      className="font-bold text-[12px] uppercase tracking-[0.04em] flex items-center gap-1.5"
+                      style={{ color }}
                     >
+                      {ev.info ? (
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" />
+                        </svg>
+                      ) : null}
                       {ev.label}
                     </span>
-                    <span style={{ fontSize: 13, color, fontWeight: 700 }}>
-                      {pct}%
-                    </span>
+                    {ev.info ? null : (
+                      <span className="text-[13px] font-bold" style={{ color }}>
+                        {pct}%
+                      </span>
+                    )}
                   </div>
-                  <div style={{ fontSize: 12, color: "var(--muted)" }}>
+                  {ev.note ? (
+                    <div
+                      className="text-[11.5px] text-[#c4c4c4] italic leading-snug mb-1"
+                      title={ev.note}
+                    >
+                      &ldquo;{ev.note}&rdquo;
+                    </div>
+                  ) : null}
+                  <div className="text-[12px] text-[#8a8a8a]">
                     {formatTime(ev.time)}
                   </div>
                   <div
-                    style={{
-                      fontSize: 11,
-                      marginTop: 3,
-                      color: ev.savedPath ? "var(--green)" : "var(--yellow)",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                    }}
-                    title={ev.savedPath ?? ev.saveError}
+                    className="text-[11px] mt-0.5 text-[#8a8a8a] flex items-center gap-[5px] overflow-hidden text-ellipsis whitespace-nowrap"
+                    title={ev.source}
                   >
-                    {ev.savedPath
-                      ? `✓ saved • ${ev.savedPath.split(/[\\/]/).pop()}`
-                      : `⚠ not saved${ev.saveError ? ` • ${ev.saveError}` : ""}`}
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M23 7l-7 5 7 5zM1 5h15v14H1z" />
+                    </svg>
+                    {ev.source}
                   </div>
+                  {ev.info ? null : (
+                    <div
+                      className="text-[11px] mt-[3px] overflow-hidden text-ellipsis whitespace-nowrap"
+                      style={{ color: ev.savedPath ? "#22c55e" : "#eab308" }}
+                      title={ev.savedPath ?? ev.saveError}
+                    >
+                      {ev.savedPath
+                        ? `✓ saved • ${ev.savedPath.split(/[\\/]/).pop()}`
+                        : `⚠ not saved${ev.saveError ? ` • ${ev.saveError}` : ""}`}
+                    </div>
+                  )}
                 </div>
               </div>
             );
@@ -199,78 +132,22 @@ export default function EventsPanel({ events, live = false }: Props) {
         )}
       </div>
 
-      <div
-        style={{
-          padding: "10px 16px",
-          borderTop: "1px solid var(--border)",
-          flexShrink: 0,
-        }}
-      >
-        <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
-          <span
-            style={{
-              fontSize: 11,
-              color: "var(--muted)",
-              display: "flex",
-              alignItems: "center",
-              gap: 5,
-            }}
-          >
-            <span
-              style={{
-                display: "inline-block",
-                width: 8,
-                height: 8,
-                borderRadius: "50%",
-                background: CIGARETTE_COLOR,
-              }}
-            />
+      <div className="px-4 py-2.5 border-t border-[#272727] shrink-0">
+        <div className="flex gap-3.5 flex-wrap">
+          <span className="text-[11px] text-[#8a8a8a] flex items-center gap-[5px]">
+            <span className="inline-block w-2 h-2 rounded-full" style={{ background: CIGARETTE_COLOR }} />
             Cigarette &ge; {Math.round(SMOKING_THRESHOLD * 100)}%
           </span>
-          <span
-            style={{
-              fontSize: 11,
-              color: "var(--muted)",
-              display: "flex",
-              alignItems: "center",
-              gap: 5,
-            }}
-          >
-            <span
-              style={{
-                display: "inline-block",
-                width: 8,
-                height: 8,
-                borderRadius: "50%",
-                background: VAPE_COLOR,
-              }}
-            />
+          <span className="text-[11px] text-[#8a8a8a] flex items-center gap-[5px]">
+            <span className="inline-block w-2 h-2 rounded-full" style={{ background: VAPE_COLOR }} />
             Vape &ge; {Math.round(SMOKING_THRESHOLD * 100)}%
           </span>
-          <span
-            style={{
-              fontSize: 11,
-              color: "var(--muted)",
-              display: "flex",
-              alignItems: "center",
-              gap: 5,
-            }}
-          >
-            <span
-              style={{
-                display: "inline-block",
-                width: 8,
-                height: 8,
-                borderRadius: "50%",
-                background: LITTER_COLOR,
-              }}
-            />
-            Litter &ge; {Math.round(LITTER_THRESHOLD * 100)}%
+          <span className="text-[11px] text-[#8a8a8a] flex items-center gap-[5px]">
+            <span className="inline-block w-2 h-2 rounded-full" style={{ background: LITTER_COLOR }} />
+            Littering (carry → drop → leave)
           </span>
         </div>
       </div>
-
-      <style>{`@keyframes evIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }`}</style>
     </div>
   );
 }

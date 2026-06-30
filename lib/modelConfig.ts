@@ -34,6 +34,8 @@ export const LITTER_THRESHOLD = 0.52;
 export const LITTER_ON_PERSON_MIN = 0.74;
 /** Small handheld litter in a smoking pose is often a vape/phone false positive. */
 export const LITTER_HANDHELD_DEVICE_MAX = 0.88;
+/** Lower decode threshold for carry/drop tracking (not instant alerts). */
+export const LITTER_TRACK_THRESHOLD = 0.30;
 export const ALERT_THRESHOLD = 0.55;
 /** Consecutive-frame gate for smoking/litter display and evidence. */
 export const TEMPORAL_WINDOW = 5;

@@ -17,9 +17,35 @@ interface DiscoveryResultsResponse {
   discovered_cameras?: DiscoveredCameraResponse[];
 }
 
+interface NodeCameraResponse {
+  id: string;
+  name: string;
+  host: string;
+  port: number;
+  rtspUrl: string;
+  source?: string;
+}
+
+interface NodeScanResponse {
+  status: "idle" | "running" | "completed" | "failed";
+  cameras?: NodeCameraResponse[];
+  error?: string;
+}
+
 export interface DiscoveryResults {
   status: DiscoveryStatus;
   cameras: CameraView[];
+}
+
+const SERVICE_HINT = "Run npm run dev:camera-service in a second terminal.";
+
+function cameraServiceBase(): string {
+  if (typeof window !== "undefined") {
+    return (
+      process.env.NEXT_PUBLIC_CAMERA_SERVICE_HTTP ?? `http://${window.location.hostname}:3001`
+    );
+  }
+  return process.env.CAMERA_SERVICE_ORIGIN ?? "http://localhost:3001";
 }
 
 function discoveredCameraToView(camera: DiscoveredCameraResponse): CameraView {
@@ -43,34 +69,27 @@ function discoveredCameraToView(camera: DiscoveredCameraResponse): CameraView {
   };
 }
 
-export async function fetchDiscoveryResults(): Promise<DiscoveryResults> {
-  const response = await fetch("/api/cameras/discovery/results", { cache: "no-store" });
-  const contentType = response.headers.get("content-type") ?? "";
-  if (!contentType.includes("application/json")) {
-    throw new Error(`Discovery API returned non-JSON response (${response.status})`);
-  }
-
-  const data = (await response.json()) as DiscoveryResultsResponse;
-  if (!response.ok) {
-    throw new Error(`Failed to load discovered cameras: ${response.status}`);
-  }
-
-  if (data.status === "failed" || data.status === "timeout") {
-    return {
-      status: data.status,
-      cameras: (data.discovered_cameras ?? []).map(discoveredCameraToView),
-    };
-  }
-
+function nodeCameraToView(camera: NodeCameraResponse): CameraView {
+  const parsed = parseRtspUrl(camera.rtspUrl);
   return {
-    status: data.status,
-    cameras: (data.discovered_cameras ?? []).map(discoveredCameraToView),
+    id: camera.id,
+    name: camera.name,
+    host: camera.host,
+    rtsp_port: camera.port,
+    rtsp_path: parsed.path,
+    floor: 0,
+    zone: "Discovered",
+    stream_url: buildStreamProxyUrl(camera.rtspUrl),
+    enabled: true,
+    online: true,
+    status: "online",
   };
 }
 
-export async function fetchDiscoveredCameras(): Promise<CameraView[]> {
-  const { cameras } = await fetchDiscoveryResults();
-  return cameras;
+function mapNodeStatus(status: NodeScanResponse["status"]): DiscoveryStatus {
+  if (status === "running") return "running";
+  if (status === "failed") return "failed";
+  return "completed";
 }
 
 async function parseApiError(response: Response): Promise<string> {
@@ -82,17 +101,96 @@ async function parseApiError(response: Response): Promise<string> {
   }
 }
 
+function discoveryUnavailableError(response: Response): Error {
+  if (response.status === 500 || response.status === 502 || response.status === 503) {
+    return new Error(`Camera discovery service is unavailable. ${SERVICE_HINT}`);
+  }
+  return new Error(`Discovery API returned non-JSON response (${response.status})`);
+}
+
+async function fetchFromCameraService(path: string, init?: RequestInit): Promise<Response> {
+  return fetch(`${cameraServiceBase()}/api${path}`, { cache: "no-store", ...init });
+}
+
+async function fetchFromPythonDiscovery(path: string, init?: RequestInit): Promise<Response> {
+  return fetch(`/api/cameras/discovery${path}`, { cache: "no-store", ...init });
+}
+
+async function tryCameraServiceResults(): Promise<DiscoveryResults | null> {
+  const response = await fetchFromCameraService("/discover/results");
+  const contentType = response.headers.get("content-type") ?? "";
+  if (!contentType.includes("application/json")) {
+    return null;
+  }
+  if (!response.ok) {
+    return null;
+  }
+
+  const data = (await response.json()) as NodeScanResponse;
+  return {
+    status: mapNodeStatus(data.status),
+    cameras: (data.cameras ?? []).map(nodeCameraToView),
+  };
+}
+
+async function tryPythonResults(): Promise<DiscoveryResults> {
+  const response = await fetchFromPythonDiscovery("/results");
+  const contentType = response.headers.get("content-type") ?? "";
+  if (!contentType.includes("application/json")) {
+    throw discoveryUnavailableError(response);
+  }
+
+  const data = (await response.json()) as DiscoveryResultsResponse;
+  if (!response.ok) {
+    throw new Error(`Failed to load discovered cameras: ${response.status}`);
+  }
+
+  return {
+    status: data.status,
+    cameras: (data.discovered_cameras ?? []).map(discoveredCameraToView),
+  };
+}
+
+export async function fetchDiscoveryResults(): Promise<DiscoveryResults> {
+  const fromService = await tryCameraServiceResults();
+  if (fromService) {
+    return fromService;
+  }
+  return tryPythonResults();
+}
+
+export async function fetchDiscoveredCameras(): Promise<CameraView[]> {
+  const { cameras } = await fetchDiscoveryResults();
+  return cameras;
+}
+
 export async function fetchDiscoverySubnet(): Promise<string> {
-  const response = await fetch("/api/cameras/discovery/subnet", { cache: "no-store" });
+  const serviceResponse = await fetchFromCameraService("/discover/subnet");
+  if (serviceResponse.ok) {
+    const body = (await serviceResponse.json()) as { subnet: string; subnets?: string[] };
+    return body.subnets?.join(", ") ?? body.subnet;
+  }
+
+  const response = await fetchFromPythonDiscovery("/subnet");
   if (!response.ok) {
     throw new Error(await parseApiError(response));
   }
-  const body = (await response.json()) as { subnet: string };
-  return body.subnet;
+  const body = (await response.json()) as { subnet: string; subnets?: string[] };
+  return body.subnets?.join(", ") ?? body.subnet;
 }
 
-export async function startDiscoveryScan(subnet: string): Promise<void> {
-  const response = await fetch("/api/cameras/discovery/start", {
+export async function startDiscoveryScan(_subnet?: string): Promise<void> {
+  const serviceResponse = await fetchFromCameraService("/discover/start", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({}),
+  });
+
+  if (serviceResponse.ok) {
+    return;
+  }
+
+  const response = await fetchFromPythonDiscovery("/start", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ targets: [subnet] }),

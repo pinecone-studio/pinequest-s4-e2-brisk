@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 
 const fastApiOrigin = process.env.FASTAPI_ORIGIN ?? "http://localhost:8000";
+const cameraServiceOrigin = process.env.CAMERA_SERVICE_ORIGIN ?? "http://localhost:3001";
 const isStaticExport = process.env.STATIC_EXPORT === "1";
 
 const nextConfig: NextConfig = {
@@ -16,6 +17,10 @@ const nextConfig: NextConfig = {
             {
               source: "/api/cameras/:path*",
               destination: `${fastApiOrigin}/api/cameras/:path*`,
+            },
+            {
+              source: "/api/camera-service/:path*",
+              destination: `${cameraServiceOrigin}/api/:path*`,
             },
           ];
         },

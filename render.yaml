@@ -1,0 +1,23 @@
+# Render Blueprint — deploys the Aegis FastAPI backend as a Docker web service.
+# After pushing to GitHub: Render Dashboard → New → Blueprint → pick this repo.
+services:
+  - type: web
+    name: aegis-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    # ML libs (torch + tensorflow + ultralytics) need real RAM. Free/Starter
+    # will run out of memory on model load — use Standard (2 GB) or higher.
+    plan: standard
+    region: oregon
+    healthCheckPath: /api/stats
+    envVars:
+      # Set the real value in the Render dashboard (Environment tab) — do NOT
+      # commit the key. Pulled from your local .env when you set it there.
+      - key: ROBOFLOW_API_KEY
+        sync: false
+      - key: ROBOFLOW_WORKSPACE
+        value: timmy-ji8jf
+      - key: ROBOFLOW_PROJECT
+        value: smoking-bjzv1
+      - key: ROBOFLOW_VERSION
+        value: "3"

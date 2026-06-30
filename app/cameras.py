@@ -20,14 +20,29 @@ def load_config(path: str = "cameras.json") -> dict:
 
 
 def _build_rtsp(ip: str) -> str:
-    return _CONFIG["rtsp_template"].format(ip=ip)
+    template = _CONFIG.get("rtsp_template", "rtsp://{ip}:554/")
+    return template.format(ip=ip)
+
+
+def resolve_rtsp_url(camera: dict) -> Optional[str]:
+    """Prefer an explicit per-camera rtsp_url (with credentials/path);
+    fall back to building one from the template + ip/host."""
+    url = camera.get("rtsp_url") or camera.get("remote_rtsp_url") or camera.get("stream_url")
+    if url:
+        return url
+    ip = camera.get("ip") or camera.get("host")
+    if ip:
+        return _build_rtsp(ip)
+    return None
 
 
 class CameraStream:
     def __init__(self, camera: dict, sample_rate: int, stop_event: threading.Event):
         self.camera = camera
         self.camera_id = camera["id"]
-        self.url = _build_rtsp(camera["ip"])
+        self.url = resolve_rtsp_url(camera)
+        if not self.url:
+            raise ValueError(f"Camera {self.camera_id} has no rtsp_url/ip/host configured")
         self.sample_rate = sample_rate
         self.stop_event = stop_event
 
@@ -92,8 +107,13 @@ def start_all(stop_event: threading.Event) -> dict:
     global _streams
     cfg = _CONFIG
     sample_rate = cfg.get("sample_rate", 15)
-    for cam in cfg["cameras"]:
-        _streams[cam["id"]] = CameraStream(cam, sample_rate, stop_event)
+    for cam in cfg.get("cameras", []):
+        if cam.get("enabled") is False:
+            continue
+        try:
+            _streams[cam["id"]] = CameraStream(cam, sample_rate, stop_event)
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Skipping camera %s: %s", cam.get("id"), exc)
     return _streams
 
 
@@ -111,9 +131,9 @@ def get_camera_statuses() -> List[Dict]:
         stream = _streams.get(cam["id"])
         result.append({
             "id": cam["id"],
-            "floor": cam["floor"],
-            "zone": cam["zone"],
-            "ip": cam["ip"],
+            "floor": cam.get("floor", 0),
+            "zone": cam.get("zone", "unknown"),
+            "ip": cam.get("ip") or cam.get("host", ""),
             "online": stream.online if stream else False,
         })
     return result
