@@ -14,10 +14,11 @@ import {
   INPUT_SIZE,
 } from "./modelConfig";
 import { decodeYolo, decodeYoloClasses, Detection } from "./yoloDecode";
-import { computeCompositeDetections } from "./rules";
+import { computeCompositeDetections, filterLitterByPersons, filterBackgroundLitter, filterLitterOverlappingSmoking, filterLikelyDeviceLitter } from "./rules";
 import { buildLitteringInputs } from "./littering/pipeline";
 import type { RawDetection } from "./littering/simpleTracker";
-import { analyzeMouthRegion, isVisualFalsePositive } from "./smokingVision";
+import { analyzeMouthRegion, isVisualFalsePositive, isHandRegionFalsePositive } from "./smokingVision";
+import { applyTemporalFilter } from "./temporalFilter";
 import type { MouthAnalysis } from "./rules";
 import type { FrameSource } from "./frameSource";
 import { getSourceSize, isSourceReady } from "./frameSource";
@@ -95,6 +96,23 @@ function mouthAnalysisFromSource(
     centerPaleRatio: stats.centerPaleRatio,
     skinCoverRatio: stats.skinCoverRatio,
     isFalsePositive: isVisualFalsePositive(stats),
+  };
+}
+
+function regionAnalysisFromSource(
+  source: FrameSource,
+  regionBox: Box,
+): MouthAnalysis | null {
+  const stats = analyzeMouthRegion(source, regionBox);
+  if (!stats) return null;
+  return {
+    smokeLikeRatio: stats.smokeLikeRatio,
+    emberRatio: stats.emberRatio,
+    uniformLightRatio: stats.uniformLightRatio,
+    palePaperRatio: stats.palePaperRatio,
+    centerPaleRatio: stats.centerPaleRatio,
+    skinCoverRatio: stats.skinCoverRatio,
+    isFalsePositive: isHandRegionFalsePositive(stats) || isVisualFalsePositive(stats),
   };
 }
 
@@ -265,21 +283,36 @@ export async function runInference(source: FrameSource): Promise<InferenceResult
       smokingDets,
       smokingPersons,
       (box) => mouthAnalysisFromSource(source, box),
+      (box) => regionAnalysisFromSource(source, box),
     );
 
     rememberPersons(cocoDets);
 
     const litteringInputs = buildLitteringInputs(cocoDets, litterDets);
+    const filteredLitter = filterLikelyDeviceLitter(
+      filterLitterOverlappingSmoking(
+        filterBackgroundLitter(
+          filterLitterByPersons(litterDets, smokingPersons),
+          smokingPersons,
+        ),
+        smokingDets,
+      ),
+      smokingPersons,
+    );
 
-  return {
-    detections: [
+    const detections = applyTemporalFilter([
       ...personDetections,
       ...smokingResults.map((r) => ({
         label: r.productLabel,
         confidence: r.compositeScore,
         box: r.cigaretteBox,
       })),
-    ],
-    litteringInputs,
-  };
-}
+      ...filteredLitter.map((r) => ({
+        label: "Litter",
+        confidence: r.confidence,
+        box: r.box,
+      })),
+    ]);
+
+    return { detections, litteringInputs };
+  }

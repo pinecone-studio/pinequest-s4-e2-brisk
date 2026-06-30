@@ -18,6 +18,7 @@ runs/
 node_modules/
 .next/
 out/
+*.tsbuildinfo
 *.log
 .DS_Store
 .vercel
@@ -26,6 +27,7 @@ out/
 # Runtime models live in public/models/ and stay tracked.
 models/smoking-dataset/
 models/security-dataset/
+models/vape-cigarette-supplement/
 
 # YAMNet local cache (downloaded by TensorFlow Hub or manually)
 models/yamnet_cache/
