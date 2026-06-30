@@ -16,11 +16,12 @@ export function createStreamRelay(app: Express) {
       return;
     }
 
-    proxy({
+    const handleStream = proxy({
       url: camera.rtspUrl,
       transport: "tcp",
       verbose: false,
-    })(ws, req);
+    });
+    handleStream(ws as Parameters<typeof handleStream>[0]);
   });
 
   return { scriptUrl };
