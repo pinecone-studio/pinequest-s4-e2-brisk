@@ -14,8 +14,9 @@ import {
   INPUT_SIZE,
 } from "./modelConfig";
 import { decodeYolo, decodeYoloClasses, Detection } from "./yoloDecode";
-import { computeCompositeDetections, filterLitterByPersons, filterBackgroundLitter } from "./rules";
-import { analyzeMouthRegion, isVisualFalsePositive } from "./smokingVision";
+import { computeCompositeDetections, filterLitterByPersons, filterBackgroundLitter, filterLitterOverlappingSmoking, filterLikelyDeviceLitter } from "./rules";
+import { analyzeMouthRegion, isVisualFalsePositive, isHandRegionFalsePositive } from "./smokingVision";
+import { applyTemporalFilter } from "./temporalFilter";
 import type { MouthAnalysis } from "./rules";
 
 const LITTER_CLASS_NAMES = ["plastic-bottles"];
@@ -92,6 +93,23 @@ function mouthAnalysisFromVideo(
     centerPaleRatio: stats.centerPaleRatio,
     skinCoverRatio: stats.skinCoverRatio,
     isFalsePositive: isVisualFalsePositive(stats),
+  };
+}
+
+function regionAnalysisFromVideo(
+  video: HTMLVideoElement,
+  regionBox: Box,
+): MouthAnalysis | null {
+  const stats = analyzeMouthRegion(video, regionBox);
+  if (!stats) return null;
+  return {
+    smokeLikeRatio: stats.smokeLikeRatio,
+    emberRatio: stats.emberRatio,
+    uniformLightRatio: stats.uniformLightRatio,
+    palePaperRatio: stats.palePaperRatio,
+    centerPaleRatio: stats.centerPaleRatio,
+    skinCoverRatio: stats.skinCoverRatio,
+    isFalsePositive: isHandRegionFalsePositive(stats) || isVisualFalsePositive(stats),
   };
 }
 
@@ -260,15 +278,22 @@ export async function runInference(video: HTMLVideoElement): Promise<Detection[]
       smokingDets,
       smokingPersons,
       (box) => mouthAnalysisFromVideo(video, box),
+      (box) => regionAnalysisFromVideo(video, box),
     );
 
     rememberPersons(cocoDets);
-    const filteredLitter = filterBackgroundLitter(
-      filterLitterByPersons(litterDets, personBoxes),
+    const filteredLitter = filterLikelyDeviceLitter(
+      filterLitterOverlappingSmoking(
+        filterBackgroundLitter(
+          filterLitterByPersons(litterDets, personBoxes),
+          personBoxes,
+        ),
+        smokingDets,
+      ),
       personBoxes,
     );
 
-    return [
+    const frameDetections: Detection[] = [
       ...personDetections,
       ...smokingResults.map((r) => ({
         label: r.productLabel,
@@ -281,6 +306,8 @@ export async function runInference(video: HTMLVideoElement): Promise<Detection[]
         box: r.box,
       })),
     ];
+
+    return applyTemporalFilter(frameDetections);
   } finally {
     isRunning = false;
   }

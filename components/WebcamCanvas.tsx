@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react";
 import { runInference } from "@/lib/inference";
 import { Detection } from "@/lib/yoloDecode";
-import { ALERT_THRESHOLD, SMOKING_THRESHOLD, LITTER_THRESHOLD } from "@/lib/modelConfig";
+import { ALERT_THRESHOLD } from "@/lib/modelConfig";
 import type { EvidenceEvent } from "@/lib/evidence";
 
 type ViolationKind = {
@@ -224,7 +224,7 @@ export default function WebcamCanvas({ onDetections, onEvent, paused }: Props) {
             const cigarette = best("Cigarette");
             if (
               cigarette &&
-              cigarette.confidence >= SMOKING_THRESHOLD &&
+              cigarette.confidence >= ALERT_THRESHOLD &&
               now - lastCaptureRef.current.cigarette >= CAPTURE_COOLDOWN_MS
             ) {
               lastCaptureRef.current.cigarette = now;
@@ -234,7 +234,7 @@ export default function WebcamCanvas({ onDetections, onEvent, paused }: Props) {
             const vape = best("Vape");
             if (
               vape &&
-              vape.confidence >= SMOKING_THRESHOLD &&
+              vape.confidence >= ALERT_THRESHOLD &&
               now - lastCaptureRef.current.vape >= CAPTURE_COOLDOWN_MS
             ) {
               lastCaptureRef.current.vape = now;
@@ -244,7 +244,7 @@ export default function WebcamCanvas({ onDetections, onEvent, paused }: Props) {
             const litter = best("Litter");
             if (
               litter &&
-              litter.confidence >= LITTER_THRESHOLD &&
+              litter.confidence >= ALERT_THRESHOLD &&
               now - lastCaptureRef.current.litter >= CAPTURE_COOLDOWN_MS
             ) {
               lastCaptureRef.current.litter = now;

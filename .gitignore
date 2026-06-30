@@ -22,3 +22,4 @@ out/
 # Runtime models live in public/models/ and stay tracked.
 models/smoking-dataset/
 models/security-dataset/
+models/vape-cigarette-supplement/
