@@ -4,6 +4,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { cameraStreamWsUrl, jsmpegScriptUrl } from "../lib/universalCameraApi";
 import type { TileConnectionState, UniversalCamera } from "../lib/universalCameraTypes";
 
+declare global {
+  interface Window {
+    JSMpeg: {
+      Player: new (url: string, options: Record<string, unknown>) => { destroy: () => void };
+    };
+  }
+}
+
 let jsmpegLoader: Promise<void> | null = null;
 
 function loadJsmpeg(): Promise<void> {
