@@ -1,26 +1,3 @@
-declare global {
-  interface Window {
-    JSMpeg?: {
-      Player: new (
-        url: string,
-        options: {
-          canvas: HTMLCanvasElement;
-          autoplay?: boolean;
-          audio?: boolean;
-          pauseWhenHidden?: boolean;
-          disableGl?: boolean;
-          onSourceEstablished?: () => void;
-          onSourceCompleted?: () => void;
-        },
-      ) => {
-        destroy: () => void;
-        play?: () => void;
-        stop?: () => void;
-      };
-    };
-  }
-}
-
 export type UniversalCamera = {
   id: string;
   name: string;
