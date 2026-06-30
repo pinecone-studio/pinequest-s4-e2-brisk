@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import path from "path";
 import { spawn, type ChildProcessWithoutNullStreams } from "child_process";
+import { resolvePythonBin } from "@/lib/pythonBin";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -176,7 +177,7 @@ function attachDecoderToStream(
 
 function startDecoder(candidates: StreamCandidate[]): ChildProcessWithoutNullStreams {
   const scriptPath = path.join(process.cwd(), "app/api/stream/[cameraId]/rtsp_mjpeg.py");
-  const decoder = spawn("python3", ["-u", scriptPath], {
+  const decoder = spawn(resolvePythonBin(), ["-u", scriptPath], {
     stdio: ["pipe", "pipe", "pipe"],
   });
   decoder.stdin.end(JSON.stringify({ stream_candidates: candidates }));

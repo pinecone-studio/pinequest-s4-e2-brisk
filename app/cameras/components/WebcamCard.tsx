@@ -21,20 +21,12 @@ const MERGE_GAP = 14; // boxes closer than this get merged into one (proc pixels
 const MIN_BOX_AREA = 120; // drop final boxes smaller than this (proc pixels)
 
 // --- Cloud vision "brain" (only called when motion trips) -------------------
-// Swap this to "/api/gemini" once the Gemini route + billing are ready.
-const DETECT_ENDPOINT = "/api/detect";
+// Cloud VLM endpoint — Gemini vision (key stays server-side in the route).
+const DETECT_ENDPOINT = "/api/gemini";
 const VERIFY_COOLDOWN_MS = 4000; // min gap between cloud calls, even on constant motion
-const VLM_BOX_TTL_MS = 3500; // how long a VLM box stays drawn after a verdict
 const CAPTURE_COOLDOWN_MS = 8000; // per-type evidence/event cooldown
 const VIOLATION_THRESHOLD = 0.7; // ignore low-confidence guesses (kills false positives)
 const WEBCAM_ID = "webcam-local";
-
-const VLM_COLORS: Record<string, string> = {
-  Cigarette: "#ef4444",
-  Vape: "#a855f7",
-  Litter: "#f97316",
-  Person: "#3b82f6",
-};
 
 interface Box {
   x1: number;
@@ -156,7 +148,6 @@ export default function WebcamCard({
   const onEventRef = useRef(onEvent);
   const lastVerifyRef = useRef(0);
   const verifyingRef = useRef(false);
-  const vlmDetsRef = useRef<{ dets: Detection[]; expiry: number }>({ dets: [], expiry: 0 });
   const lastCaptureRef = useRef({ Cigarette: 0, Vape: 0, Litter: 0 });
 
   useEffect(() => {
@@ -227,7 +218,6 @@ export default function WebcamCard({
         (d) => d.label === "Person" || d.confidence >= VIOLATION_THRESHOLD,
       );
       const summary = (data.summary ?? "").trim();
-      vlmDetsRef.current = { dets, expiry: Date.now() + VLM_BOX_TTL_MS };
 
       // Raise events / save evidence for actual violations (Person is context only).
       const now = Date.now();
@@ -350,28 +340,6 @@ export default function WebcamCard({
             );
           }
           ctx.setLineDash([]);
-
-          // VLM verdict: solid labeled boxes (normalized 0..1 coords)
-          if (now < vlmDetsRef.current.expiry) {
-            ctx.font = "bold 13px system-ui, sans-serif";
-            for (const d of vlmDetsRef.current.dets) {
-              const color = VLM_COLORS[d.label] ?? "#f97316";
-              const px = d.box[0] * w;
-              const py = d.box[1] * h;
-              const pw = (d.box[2] - d.box[0]) * w;
-              const ph = (d.box[3] - d.box[1]) * h;
-              ctx.strokeStyle = color;
-              ctx.lineWidth = d.label === "Person" ? 2 : 3;
-              ctx.strokeRect(px, py, pw, ph);
-
-              const text = `${d.label} ${Math.round(d.confidence * 100)}%`;
-              const tw = ctx.measureText(text).width;
-              ctx.fillStyle = color;
-              ctx.fillRect(px, py - 20, tw + 10, 20);
-              ctx.fillStyle = "#fff";
-              ctx.fillText(text, px + 5, py - 5);
-            }
-          }
         }
       }
 

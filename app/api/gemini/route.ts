@@ -1,31 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
 
-// Groq vision detection proxy. Keeps GROQ_API_KEY server-side; the browser
-// never sees it. POST a JPEG (base64) and get back normalized detections that
-// match the app's Detection contract ({ label, confidence, box:[x1,y1,x2,y2] }).
+// Gemini vision detection proxy. Keeps GEMINI_API_KEY server-side; the browser
+// never sees it. POST a JPEG (base64 / data URL) and get back:
+//   { detections: [{ label, confidence, box:[x1,y1,x2,y2] }], summary }
 //
-// NOTE: Llama vision is a general LLM, not a detector — bounding boxes are
-// approximate. We keep the box contract so the existing overlay/panel work.
+// Returns the app's Detection contract directly (Cigarette/Vape/Litter/Person,
+// normalized 0-1 boxes) so the webcam tile can render boxes + the AI summary.
 
-// Use || (not ??) so an empty GROQ_MODEL="" in .env still falls back to the default.
-const MODEL = process.env.GROQ_MODEL || "meta-llama/llama-4-scout-17b-16e-instruct";
-const ENDPOINT = "https://api.groq.com/openai/v1/chat/completions";
+const MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+const ENDPOINT = (model: string, key: string) =>
+  `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
 
-const SYSTEM_PROMPT =
-  "You are a surveillance vision system that detects smoking and littering. Respond with JSON only, no prose.";
-
-const USER_PROMPT = `You monitor for SMOKING and LITTERING. Your priority is finding these targets:
-- "Cigarette": a cigarette held in a hand or at the mouth, lit or unlit. Look closely at hands and faces — cigarettes are small and thin. If a small white/tan stick is near a person's mouth or fingers, report it.
+const PROMPT = `You are a surveillance vision system that monitors for SMOKING and LITTERING. Look at this single frame and report:
+- "Cigarette": a cigarette held in a hand or at the mouth, lit or unlit.
 - "Vape": an e-cigarette / vape pen / pod / box mod held near the mouth or hand.
 - "Litter": a bottle, can, cup, wrapper, bag, or plastic item being held about to be dropped, mid-drop, or already lying discarded.
 - "Person": each visible person (secondary — context only).
 
 Be conservative: only report a Cigarette/Vape/Litter when you can CLEARLY see it. A hand near the face, a finger, a phone, a pen, jewelry, or fast movement (e.g. dancing) is NOT a cigarette — do not report one unless an actual cigarette/vape is visible. When in doubt, do NOT report it. Only assign confidence above 0.7 when you are genuinely confident.
 
-Respond with a JSON object of this exact shape:
+Respond with STRICT JSON of this exact shape, no markdown:
 {"summary":"one short sentence describing what you see and whether anything is illegal","detections":[{"label":"Cigarette|Vape|Litter|Person","confidence":0.0-1.0,"box":[x_min,y_min,x_max,y_max]}]}
 
-The "summary" is always required — describe the scene in plain language (e.g. "A person standing, no smoking or littering" or "A person holding a lit cigarette near their mouth"). Coordinates are normalized 0.0-1.0, origin at top-left. If nothing is present, return {"summary":"...","detections":[]}.`;
+The "summary" is always required — describe the scene in plain language (e.g. "A person standing, no smoking or littering"). Coordinates are normalized 0.0-1.0, origin at top-left. If nothing notable is present, return {"summary":"...","detections":[]}.`;
 
 interface RawBox {
   label?: string;
@@ -42,7 +39,7 @@ interface Detection {
 const VALID_LABELS = new Set(["Cigarette", "Vape", "Litter", "Person"]);
 const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
 
-/** LLMs are inconsistent about coordinate scale — accept 0-1, 0-100, or 0-1000. */
+/** Models are inconsistent about coordinate scale — accept 0-1, 0-100, or 0-1000. */
 function normalizeScale(box: number[]): number[] {
   const max = Math.max(...box.map(Math.abs));
   if (max <= 1) return box;
@@ -88,18 +85,27 @@ function extractJson(text: string): unknown {
   }
 }
 
-/** Health check — confirms the key is configured before the UI flips to "ready". */
+/** Strip a data-URL prefix and report the mime type for Gemini inline_data. */
+function parseImage(image: string): { data: string; mimeType: string } {
+  const match = /^data:(image\/[a-zA-Z+]+);base64,([\s\S]*)$/.exec(image);
+  if (match) return { mimeType: match[1], data: match[2] };
+  return { mimeType: "image/jpeg", data: image };
+}
+
+const apiKey = () => process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "";
+
+/** Health check — confirms the key is configured before the UI relies on it. */
 export async function GET(): Promise<NextResponse> {
-  if (!process.env.GROQ_API_KEY) {
-    return NextResponse.json({ error: "GROQ_API_KEY is not set on the server" }, { status: 500 });
+  if (!apiKey()) {
+    return NextResponse.json({ error: "GEMINI_API_KEY is not set on the server" }, { status: 500 });
   }
   return NextResponse.json({ ok: true, model: MODEL });
 }
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
-  const apiKey = process.env.GROQ_API_KEY;
-  if (!apiKey) {
-    return NextResponse.json({ error: "GROQ_API_KEY is not set" }, { status: 500 });
+  const key = apiKey();
+  if (!key) {
+    return NextResponse.json({ error: "GEMINI_API_KEY is not set" }, { status: 500 });
   }
 
   let image: string;
@@ -107,40 +113,52 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const body = await req.json();
     image = String(body.image ?? "");
     if (!image) throw new Error("missing image");
-    if (!image.startsWith("data:")) image = `data:image/jpeg;base64,${image}`;
   } catch {
     return NextResponse.json({ error: "invalid request body" }, { status: 400 });
   }
 
-  try {
-    const res = await fetch(ENDPOINT, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        temperature: 0,
-        max_tokens: 1024,
-        response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          {
-            role: "user",
-            content: [
-              { type: "text", text: USER_PROMPT },
-              { type: "image_url", image_url: { url: image } },
-            ],
-          },
+  const { data, mimeType } = parseImage(image);
+
+  const requestBody = JSON.stringify({
+    contents: [
+      {
+        parts: [
+          { text: PROMPT },
+          { inline_data: { mime_type: mimeType, data } },
         ],
-      }),
-    });
+      },
+    ],
+    generationConfig: {
+      temperature: 0,
+      responseMimeType: "application/json",
+    },
+  });
+
+  // Gemini occasionally returns 503 (overloaded) / 429 (rate) under load — these
+  // are transient, so retry a couple of times with a short backoff before giving up.
+  const RETRY_STATUSES = new Set([429, 503]);
+  const MAX_ATTEMPTS = 3;
+
+  try {
+    let res: Response | null = null;
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      res = await fetch(ENDPOINT(MODEL, key), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: requestBody,
+      });
+      if (res.ok || !RETRY_STATUSES.has(res.status) || attempt === MAX_ATTEMPTS) break;
+      console.warn(`[gemini] ${res.status} (attempt ${attempt}/${MAX_ATTEMPTS}) — retrying`);
+      await new Promise((r) => setTimeout(r, 400 * attempt));
+    }
+    if (!res) {
+      return NextResponse.json({ error: "no response from Gemini" }, { status: 502 });
+    }
 
     if (!res.ok) {
       const detail = await res.text().catch(() => "");
-      console.error("[detect] Groq error", res.status, detail.slice(0, 500));
-      let message = `Groq request failed (HTTP ${res.status})`;
+      console.error("[gemini] error", res.status, detail.slice(0, 500));
+      let message = `Gemini request failed (HTTP ${res.status})`;
       try {
         const parsed = JSON.parse(detail);
         if (parsed?.error?.message) message = parsed.error.message;
@@ -150,8 +168,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: message, providerStatus: res.status }, { status: res.status });
     }
 
-    const data = await res.json();
-    const text: string = data?.choices?.[0]?.message?.content ?? "{}";
+    const payload = await res.json();
+    const text: string =
+      payload?.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text ?? "").join("") ??
+      "{}";
 
     const parsed = extractJson(text);
     const list: RawBox[] = Array.isArray(parsed)
@@ -160,9 +180,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         ? (parsed as { detections: RawBox[] }).detections
         : [];
 
-    const detections = list
-      .map(toDetection)
-      .filter((d): d is Detection => d !== null);
+    const detections = list.map(toDetection).filter((d): d is Detection => d !== null);
 
     const summary =
       typeof (parsed as { summary?: unknown })?.summary === "string"
@@ -172,7 +190,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ detections, summary });
   } catch (err) {
     const message = err instanceof Error ? err.message : "detection failed";
-    console.error("[detect] error", message);
+    console.error("[gemini] error", message);
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
