@@ -76,19 +76,38 @@ def merge_hard_negatives() -> None:
     subprocess.check_call([sys.executable, str(neg_script), str(hard_dir)], cwd=str(ROOT))
 
 
-def train(epochs: int, imgsz: int, batch: int) -> Path:
-    device = _pick_device()
-    data_yaml = _fix_data_yaml(DATA_YAML)
+def _completed_epochs() -> int:
+    results_csv = ROOT / "models" / "runs" / "smoking_types" / "results.csv"
+    if not results_csv.exists():
+        return 0
+    with open(results_csv) as f:
+        return max(0, sum(1 for _ in f) - 1)
 
-    base_weights = OUTPUT_WEIGHTS if OUTPUT_WEIGHTS.exists() else ROOT / "yolo11n.pt"
-    if OUTPUT_WEIGHTS.exists():
-        shutil.copy2(OUTPUT_WEIGHTS, BACKUP_WEIGHTS)
-        print(f"Backed up current weights to {BACKUP_WEIGHTS}")
 
-    print(f"Fine-tuning 3-class smoking model from {base_weights} on {device}")
+def _resolve_device(override: str | None = None) -> str:
+    if override:
+        return override
+    return _pick_device()
 
-    model = YOLO(str(base_weights))
-    results = model.train(
+
+def _train_kwargs(epochs: int, imgsz: int, batch: int, device: str, data_yaml: Path) -> dict:
+    # MPS (Apple Silicon) hits tensor-size bugs during loss assignment.
+    if device == "mps":
+        batch = min(batch, 8)
+        amp = False
+        cache = False
+        workers = 0
+    elif device == "cpu":
+        batch = min(batch, 8)
+        amp = False
+        cache = False
+        workers = 4
+    else:
+        amp = True
+        cache = True
+        workers = 8
+
+    return dict(
         data=str(data_yaml),
         epochs=epochs,
         imgsz=imgsz,
@@ -112,8 +131,39 @@ def train(epochs: int, imgsz: int, batch: int) -> Path:
         scale=0.4,
         fliplr=0.5,
         close_mosaic=10,
-        cache=True,
+        cache=cache,
+        amp=amp,
+        workers=workers,
     )
+
+
+def train(epochs: int, imgsz: int, batch: int, resume: bool = False, device: str | None = None) -> Path:
+    device = _resolve_device(device)
+    data_yaml = _fix_data_yaml(DATA_YAML)
+    run_dir = ROOT / "models" / "runs" / "smoking_types" / "weights"
+    best_checkpoint = run_dir / "best.pt"
+    last_checkpoint = run_dir / "last.pt"
+
+    if resume and (best_checkpoint.exists() or last_checkpoint.exists()):
+        checkpoint = best_checkpoint if best_checkpoint.exists() else last_checkpoint
+        completed = _completed_epochs()
+        remaining = max(1, epochs - completed)
+        print(
+            f"Continuing from {checkpoint} on {device} "
+            f"({completed} epochs done, {remaining} remaining)"
+        )
+        model = YOLO(str(checkpoint))
+        results = model.train(**_train_kwargs(remaining, imgsz, batch, device, data_yaml))
+    else:
+        base_weights = OUTPUT_WEIGHTS if OUTPUT_WEIGHTS.exists() else ROOT / "yolo11n.pt"
+        if OUTPUT_WEIGHTS.exists():
+            shutil.copy2(OUTPUT_WEIGHTS, BACKUP_WEIGHTS)
+            print(f"Backed up current weights to {BACKUP_WEIGHTS}")
+
+        print(f"Fine-tuning 3-class smoking model from {base_weights} on {device}")
+
+        model = YOLO(str(base_weights))
+        results = model.train(**_train_kwargs(epochs, imgsz, batch, device, data_yaml))
 
     best = Path(results.save_dir) / "weights" / "best.pt"
     shutil.copy2(best, OUTPUT_WEIGHTS)
@@ -182,19 +232,22 @@ def main() -> None:
     parser.add_argument("--skip-negatives", action="store_true")
     parser.add_argument("--force-promote", action="store_true", help="Always export best 3-class weights")
     parser.add_argument("--skip-export", action="store_true")
+    parser.add_argument("--resume", action="store_true", help="Resume interrupted run from last.pt")
+    parser.add_argument("--device", type=str, default=None, help="Force device: cpu, mps, or cuda index")
     args = parser.parse_args()
 
     sys.path.insert(0, str(ROOT))
     from scripts.train_model import download_dataset
 
-    download_dataset()
-    prepare_dataset(force_redownload=args.force_redownload)
+    if not args.resume:
+        download_dataset()
+        prepare_dataset(force_redownload=args.force_redownload)
 
-    if not args.skip_negatives:
-        merge_hard_negatives()
+        if not args.skip_negatives:
+            merge_hard_negatives()
 
     data_yaml = _fix_data_yaml(DATA_YAML)
-    best = train(args.epochs, args.imgsz, args.batch)
+    best = train(args.epochs, args.imgsz, args.batch, resume=args.resume, device=args.device)
     metrics = validate(best, data_yaml)
     promoted = maybe_promote(best, metrics, force=args.force_promote)
 

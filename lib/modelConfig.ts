@@ -11,21 +11,35 @@ export const SMOKING_THRESHOLD = 0.28;
 export const SMOKING_MODEL_MIN = 0.32;
 export const SMOKING_COMPOSITE_THRESHOLD = 0.38;
 export const SMOKING_HIGH_CONFIDENCE = 0.82;
+/** Hand-held cigarette without mouth overlap needs very high model confidence. */
+export const SMOKING_HAND_MIN_CONFIDENCE = 0.86;
+/** Vape pods are easier to miss — slightly lower bar than cigarettes. */
+export const VAPE_HAND_MIN_CONFIDENCE = 0.68;
 export const SMOKING_MOUTH_BOX_MIN = 0.28;
+/** Minimum model score to draw a cigarette box near the mouth without ember. */
+export const SMOKING_MOUTH_MIN_CONFIDENCE = 0.85;
+export const VAPE_MOUTH_MIN_CONFIDENCE = 0.72;
 /** Normalized area bounds for a cigarette/handheld smoking box. */
 export const CIGARETTE_BOX_MAX_AREA = 0.065;
 export const CIGARETTE_BOX_MIN_AREA = 0.0003;
 /** Vape pens / pods are often larger than cigarettes. */
-export const VAPE_BOX_MAX_AREA = 0.12;
+export const VAPE_BOX_MAX_AREA = 0.15;
 /** Larger box allowed when visible smoke plume is present. */
 export const SMOKE_PLUME_MAX_AREA = 0.2;
 export const SMOKE_PLUME_MIN_PIXEL_RATIO = 0.14;
 /** Only reject toy/red-light pixels below this model score. */
 export const SMOKING_VISUAL_FP_MAX = 0.55;
-export const LITTER_THRESHOLD = 0.48;
+export const LITTER_THRESHOLD = 0.52;
+/** Litter on a person needs higher confidence than floor/shelf litter. */
+export const LITTER_ON_PERSON_MIN = 0.74;
+/** Small handheld litter in a smoking pose is often a vape/phone false positive. */
+export const LITTER_HANDHELD_DEVICE_MAX = 0.88;
 /** Lower decode threshold for carry/drop tracking (not instant alerts). */
 export const LITTER_TRACK_THRESHOLD = 0.30;
 export const ALERT_THRESHOLD = 0.55;
+/** Consecutive-frame gate for smoking/litter display and evidence. */
+export const TEMPORAL_WINDOW = 5;
+export const TEMPORAL_MIN_HITS = 4;
 export const COCO_THRESHOLD = 0.25;
 export const PERSON_THRESHOLD = 0.25;
 export const SHOW_PERSON_DETECTIONS = true;

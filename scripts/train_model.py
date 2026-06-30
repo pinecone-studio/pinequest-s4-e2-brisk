@@ -57,14 +57,18 @@ def download_dataset():
     if not api_key:
         sys.exit("ROBOFLOW_API_KEY not set in .env")
 
+    workspace = os.getenv("ROBOFLOW_WORKSPACE", "timmy-ji8jf")
+    project = os.getenv("ROBOFLOW_PROJECT", "smoking-bjzv1")
+    version = int(os.getenv("ROBOFLOW_VERSION", "4"))
+
     if _count_images("train") > 0:
         print(f"Dataset already at {DATASET_DIR} ({_count_images('train')} train images), skipping download.")
         return
 
-    print("Downloading smoking dataset from Roboflow…")
+    print(f"Downloading smoking dataset from Roboflow ({workspace}/{project} v{version})…")
     rf = Roboflow(api_key=api_key)
-    version = rf.workspace("timmy-ji8jf").project("smoking-bjzv1").version(4)
-    version.download("yolov11", location=str(DATASET_DIR))
+    version_obj = rf.workspace(workspace).project(project).version(version)
+    version_obj.download("yolov11", location=str(DATASET_DIR))
     print("Download complete.")
 
 
