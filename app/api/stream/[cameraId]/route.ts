@@ -1,14 +1,13 @@
 import { NextResponse } from "next/server";
-import path from "path";
-import { spawn, type ChildProcessWithoutNullStreams } from "child_process";
+import { type ChildProcessWithoutNullStreams } from "child_process";
 import { loadCameraStreamSource } from "../../cameras/serverCameraConfig";
 import { markCameraOffline, markCameraOnline } from "../../cameras/cameraHealth";
-import { resolvePythonBin } from "@/lib/pythonBin";
+import { isBenignDecoderNoise, MJPEG_BOUNDARY, startFfmpegDecoder } from "@/lib/ffmpegStream";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-const BOUNDARY = "frame";
+const BOUNDARY = MJPEG_BOUNDARY;
 const CANDIDATE_OPEN_TIMEOUT_MS = 8000;
 const TOTAL_OPEN_TIMEOUT_MS = 12000;
 const FAILED_CAMERA_TTL_MS = 15000;
@@ -232,6 +231,15 @@ function tryOpenCandidate({
       opened = true;
       settled = true;
       cleanupOpenListeners();
+      // Remember the working URL so future opens skip straight to it. FFmpeg
+      // (unlike the old Python decoder) doesn't emit a cache marker, so record
+      // it here on first successful frame.
+      successfulStreamUrls.set(cameraId, {
+        label: `cached ${candidate.pathName}`,
+        pathName: candidate.pathName,
+        url: candidate.url,
+      });
+      failedStreamUntil.delete(cameraId);
       resolve({ decoder, firstChunk: new Uint8Array(chunk) });
     };
 
@@ -361,46 +369,15 @@ function attachDecoderToStream({
 function handleDecoderStderr(cameraId: string, host: string, chunk: Buffer) {
   for (const line of chunk.toString().split("\n")) {
     const trimmed = line.trim();
-    if (!trimmed) continue;
-
-    if (trimmed.startsWith("__GUARDAI_STREAM_CACHE__ ")) {
-      const payload = parseCacheMarker(trimmed);
-      if (typeof payload.url === "string") {
-        const pathName = typeof payload.pathName === "string" ? payload.pathName : "unknown path";
-        successfulStreamUrls.set(cameraId, {
-          label: `cached ${pathName}`,
-          pathName,
-          url: payload.url,
-        });
-        failedStreamUntil.delete(cameraId);
-        console.info(
-          `[stream] cameraId=${cameraId} host=${host} matched ${pathName} rtsp=${sanitizeRtspUrl(
-            payload.url,
-          )}`,
-        );
-      }
-    } else {
-      console.info(`[stream] cameraId=${cameraId} host=${host} ${trimmed}`);
-    }
-  }
-}
-
-function parseCacheMarker(line: string): { url?: string; pathName?: string } {
-  try {
-    const payload = JSON.parse(line.replace("__GUARDAI_STREAM_CACHE__ ", ""));
-    return typeof payload === "object" && payload !== null ? payload : {};
-  } catch {
-    return {};
+    if (!trimmed || isBenignDecoderNoise(trimmed)) continue;
+    console.info(`[stream] cameraId=${cameraId} host=${host} ${trimmed}`);
   }
 }
 
 function startDecoder(candidates: StreamCandidate[]): ChildProcessWithoutNullStreams {
-  const scriptPath = path.join(process.cwd(), "app/api/stream/[cameraId]/rtsp_mjpeg.py");
-  const decoder = spawn(resolvePythonBin(), ["-u", scriptPath], {
-    stdio: ["pipe", "pipe", "pipe"],
-  });
-  decoder.stdin.end(JSON.stringify({ stream_candidates: candidates }));
-  return decoder;
+  // Each open attempt drives a single candidate URL; FFmpeg handles the RTSP
+  // handshake and JPEG encoding directly (no Python decoder).
+  return startFfmpegDecoder(candidates[0].url);
 }
 
 function stopDecoder(decoder: ChildProcessWithoutNullStreams) {
@@ -433,16 +410,6 @@ function unavailableResponse(): Response {
       "Pragma": "no-cache",
     },
   });
-}
-
-function sanitizeRtspUrl(rtspUrl: string): string {
-  try {
-    const parsed = new URL(rtspUrl);
-    if (parsed.password) parsed.password = "***";
-    return parsed.toString();
-  } catch {
-    return "rtsp://<invalid>";
-  }
 }
 
 function buildStreamCandidates(cameraId: string, rtspUrl: string): StreamCandidate[] {
