@@ -15,8 +15,8 @@ tsconfig.tsbuildinfo
 .DS_Store
 .vercel
 
-# Runtime evidence snapshots
-evidence/
+# Runtime evidence snapshots (repo root only — not server/app/api/evidence)
+/evidence/
 data/
 logs/
 input/
