@@ -1,6 +1,23 @@
 import onvif from "node-onvif";
-import { DEFAULT_CREDENTIALS } from "../config";
+import { DEFAULT_CREDENTIALS, ONVIF_INIT_TIMEOUT_MS, ONVIF_PROBE_TIMEOUT_MS } from "../config";
 import type { DiscoveredCamera } from "../types";
+
+/**
+ * Race a promise against a timeout. node-onvif's network calls have no timeout
+ * of their own, so without this a single unresponsive device (or a stalled
+ * WS-Discovery socket) hangs the entire scan indefinitely.
+ */
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+    timer.unref?.();
+  });
+  // If the timeout wins the race, `promise` may still settle later; swallow a
+  // late rejection so it doesn't surface as an unhandledRejection.
+  promise.catch(() => {});
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
 
 interface ProbeDevice {
   urn: string;
@@ -53,7 +70,7 @@ async function resolveStreamUri(
     pass: password,
   });
 
-  await device.init();
+  await withTimeout(device.init(), ONVIF_INIT_TIMEOUT_MS, "onvif device.init");
   const profiles = device.getProfileList() as OnvifProfile[];
   for (const profile of profiles) {
     const uri = profile.stream?.rtsp;
@@ -82,7 +99,11 @@ async function probeDeviceCredentials(
 
 export async function discoverOnvifCameras(): Promise<DiscoveredCamera[]> {
   try {
-    const devices = (await onvif.startProbe()) as ProbeDevice[];
+    const devices = (await withTimeout(
+      onvif.startProbe(),
+      ONVIF_PROBE_TIMEOUT_MS,
+      "onvif.startProbe",
+    )) as ProbeDevice[];
     const cameras: DiscoveredCamera[] = [];
     const seen = new Set<string>();
 

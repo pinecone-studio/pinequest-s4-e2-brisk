@@ -27,4 +27,10 @@ export const PORT_SCAN_CONCURRENCY = 64;
 
 export const PORT_PROBE_TIMEOUT_MS = 1500;
 
+// WS-Discovery listen window. node-onvif's startProbe can hang if it never
+// resolves, so we cap it.
 export const ONVIF_PROBE_TIMEOUT_MS = 8000;
+
+// Per-device SOAP init (GetCapabilities/GetProfiles). A device that accepts the
+// TCP connection but never answers would otherwise hang the whole scan.
+export const ONVIF_INIT_TIMEOUT_MS = 4000;
