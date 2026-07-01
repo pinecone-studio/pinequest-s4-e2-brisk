@@ -49,7 +49,7 @@ export default function CameraCard({
   clock?: string;
   liveStream?: boolean;
   onSelect?: () => void;
-  onStreamSettled: (state: "loading" | "online" | "stream_unavailable") => void;
+  onStreamSettled: (state: StreamLoadState) => void;
   onCredentialsRequest?: () => void;
   aiReady?: boolean;
   aiActive?: boolean;
