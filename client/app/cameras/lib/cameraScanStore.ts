@@ -11,6 +11,7 @@ export interface CameraScanState {
   hasPerson: boolean;
   yoloImage: string | null;
   lastScanAt: number | null;
+  lastViolation: { label: string; confidence: number } | null;
 }
 
 const DEFAULT_STATE: CameraScanState = {
@@ -20,6 +21,7 @@ const DEFAULT_STATE: CameraScanState = {
   hasPerson: false,
   yoloImage: null,
   lastScanAt: null,
+  lastViolation: null,
 };
 
 const states = new Map<string, CameraScanState>();

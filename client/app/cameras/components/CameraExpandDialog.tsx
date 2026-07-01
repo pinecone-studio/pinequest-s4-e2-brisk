@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect } from "react";
-import FocusedCameraStream from "./FocusedCameraStream";
+import FocusCameraHero from "./FocusCameraHero";
 import type { CameraView } from "../lib/cameraTypes";
+import type { EvidenceEvent } from "@/lib/evidence";
 
 function cameraTitle(camera: CameraView) {
   return camera.name || camera.id;
@@ -10,12 +11,18 @@ function cameraTitle(camera: CameraView) {
 
 export default function CameraExpandDialog({
   camera,
-  initialPreviewUrl,
+  initialPreviewUrl: _initialPreviewUrl,
   onClose,
+  aiReady = false,
+  onEvent,
+  label,
 }: {
   camera: CameraView;
   initialPreviewUrl?: string | null;
   onClose: () => void;
+  aiReady?: boolean;
+  onEvent?: (event: EvidenceEvent) => void;
+  label?: string;
 }) {
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -61,10 +68,11 @@ export default function CameraExpandDialog({
             <path d="M18 6L6 18M6 6l12 12" />
           </svg>
         </button>
-        <FocusedCameraStream
+        <FocusCameraHero
           camera={camera}
-          initialPreviewUrl={initialPreviewUrl}
-          className="mb-0 shadow-[0_24px_80px_rgba(0,0,0,0.55)]"
+          label={label ?? cameraTitle(camera)}
+          aiReady={aiReady}
+          onEvent={onEvent}
         />
       </div>
     </div>

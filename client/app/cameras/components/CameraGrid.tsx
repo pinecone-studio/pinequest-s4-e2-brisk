@@ -159,6 +159,11 @@ export default function CameraGrid({
     [cameras, expandedCameraId],
   );
 
+  const expandedCameraIndex = useMemo(
+    () => (expandedCamera ? cameras.findIndex((camera) => camera.id === expandedCamera.id) : -1),
+    [cameras, expandedCamera],
+  );
+
   const handleExpandCamera = (cameraId: string) => {
     setExpandedCameraId(cameraId);
     setExpandedPreviewUrl(
@@ -201,6 +206,13 @@ export default function CameraGrid({
           camera={expandedCamera}
           initialPreviewUrl={expandedPreviewUrl}
           onClose={handleCloseExpanded}
+          aiReady={aiReady}
+          onEvent={onEvent}
+          label={
+            expandedCameraIndex >= 0
+              ? cameraLabel(expandedCamera, expandedCameraIndex)
+              : undefined
+          }
         />
       ) : null}
       {cameras.length > MAX_RENDERED_CAMERAS ? (

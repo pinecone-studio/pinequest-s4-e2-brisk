@@ -1,5 +1,13 @@
 "use client";
 
+import { GEMINI_VIOLATION_THRESHOLD, EVIDENCE_COOLDOWN_MS } from "@/lib/aiConfig";
+import {
+  captureEvidenceFromDataUrl,
+  CIGARETTE_KIND,
+  LITTER_KIND,
+  VAPE_KIND,
+} from "@/lib/cameraAiUtils";
+import type { EvidenceEvent } from "@/lib/evidence";
 import { buildCameraStreamUrl } from "./cameraApi";
 import type { CameraView } from "./cameraTypes";
 import { patchCameraScanState } from "./cameraScanStore";
@@ -8,15 +16,30 @@ import {
   BACKGROUND_SNAPSHOT_POLL_MS,
   fetchSnapshotAsBase64,
 } from "./snapshotScheduler";
-import { postYoloFilter } from "./yoloApi";
+import { postGeminiAnalyze } from "./yoloApi";
 
 const MAX_CONCURRENT_SCANS = 2;
 const SCAN_TIMEOUT_MS = 12_000;
 const UNAVAILABLE_AFTER_FAILURES = 6;
 
+type ViolationKey = "cigarette" | "vape" | "litter";
+
+const VIOLATION_SPECS: {
+  label: "Cigarette" | "Vape" | "Litter";
+  key: ViolationKey;
+  kind: typeof CIGARETTE_KIND;
+}[] = [
+  { label: "Cigarette", key: "cigarette", kind: CIGARETTE_KIND },
+  { label: "Vape", key: "vape", kind: VAPE_KIND },
+  { label: "Litter", key: "litter", kind: LITTER_KIND },
+];
+
+const lastEvidenceAt = new Map<string, number>();
+
 interface ScanSubscription {
   active: boolean;
-  cameraId: string;
+  camera: CameraView;
+  sourceLabel: string;
   streamUrl: string;
   aiReady: boolean;
   pollIntervalMs: number;
@@ -24,6 +47,7 @@ interface ScanSubscription {
   consecutiveFailures: number;
   timeout: ReturnType<typeof setTimeout> | null;
   abortController: AbortController | null;
+  onEvent?: (event: EvidenceEvent) => void;
 }
 
 interface ScanTask {
@@ -39,16 +63,21 @@ export function subscribeToBackgroundScan({
   aiReady,
   pollIntervalMs = BACKGROUND_SNAPSHOT_POLL_MS,
   jitterMs = BACKGROUND_SNAPSHOT_JITTER_MS,
+  onEvent,
+  sourceLabel,
 }: {
   camera: CameraView;
   aiReady: boolean;
   pollIntervalMs?: number;
   jitterMs?: number;
+  onEvent?: (event: EvidenceEvent) => void;
+  sourceLabel?: string;
 }): () => void {
   const streamUrl = buildCameraStreamUrl(camera);
   const subscription: ScanSubscription = {
     active: true,
-    cameraId: camera.id,
+    camera,
+    sourceLabel: sourceLabel ?? camera.name ?? camera.id,
     streamUrl,
     aiReady,
     pollIntervalMs,
@@ -56,6 +85,7 @@ export function subscribeToBackgroundScan({
     consecutiveFailures: 0,
     timeout: null,
     abortController: null,
+    onEvent,
   };
 
   patchCameraScanState(camera.id, { status: "loading" });
@@ -114,7 +144,7 @@ function drainQueue() {
 async function runTask({ subscription }: ScanTask) {
   if (!subscription.active) return;
 
-  const { cameraId } = subscription;
+  const cameraId = subscription.camera.id;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), SCAN_TIMEOUT_MS);
   subscription.abortController = controller;
@@ -146,17 +176,52 @@ async function runTask({ subscription }: ScanTask) {
     });
 
     if (subscription.aiReady) {
-      const result = await postYoloFilter(cameraId, base64Image, controller.signal);
+      const result = await postGeminiAnalyze(cameraId, base64Image, controller.signal);
       if (!subscription.active || !result) return;
 
-      if (result.has_person) {
-        console.log(`[yolo:${cameraId}] person detected`);
-      }
+      const detections = Array.isArray(result.detections) ? result.detections : [];
+      const hasPerson = detections.some((d) => d.label === "Person");
+      const summary = (result.summary ?? "").trim();
 
       patchCameraScanState(cameraId, {
-        hasPerson: result.has_person === true,
-        yoloImage: result.has_person ? (result.image ?? base64Image) : null,
+        hasPerson,
+        yoloImage: hasPerson ? base64Image : null,
       });
+
+      const now = Date.now();
+      let topViolation: { label: string; confidence: number } | null = null;
+
+      for (const spec of VIOLATION_SPECS) {
+        const det = detections
+          .filter((d) => d.label === spec.label && d.confidence >= GEMINI_VIOLATION_THRESHOLD)
+          .sort((a, b) => b.confidence - a.confidence)[0];
+        if (!det) continue;
+
+        if (!topViolation || det.confidence > topViolation.confidence) {
+          topViolation = { label: spec.label, confidence: det.confidence };
+        }
+
+        console.log(
+          `[gemini:${cameraId}] ${spec.label} ${Math.round(det.confidence * 100)}% — ${summary || "violation detected"}`,
+        );
+
+        const cooldownKey = `${cameraId}:${spec.key}`;
+        const lastAt = lastEvidenceAt.get(cooldownKey) ?? 0;
+        if (now - lastAt < EVIDENCE_COOLDOWN_MS) continue;
+
+        lastEvidenceAt.set(cooldownKey, now);
+        void captureEvidenceFromDataUrl(
+          base64Image,
+          cameraId,
+          subscription.sourceLabel,
+          spec.kind,
+          det.confidence,
+          subscription.onEvent,
+          summary || undefined,
+        );
+      }
+
+      patchCameraScanState(cameraId, { lastViolation: topViolation });
     }
   } finally {
     clearTimeout(timeout);
@@ -177,7 +242,7 @@ function initialDelay(cameraId: string, jitterMs: number): number {
 function nextDelay(subscription: ScanSubscription): number {
   return (
     subscription.pollIntervalMs +
-    (hashCameraId(`${subscription.cameraId}:${Date.now()}`) % subscription.jitterMs)
+    (hashCameraId(`${subscription.camera.id}:${Date.now()}`) % subscription.jitterMs)
   );
 }
 

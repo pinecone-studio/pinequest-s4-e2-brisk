@@ -1,5 +1,7 @@
 # PROJECT_STATUS.md — Pinequest / Aegis
 
+> See [CODEBASE_STATE.md](./CODEBASE_STATE.md) for the current, verified state; this file may be stale.
+
 _Last updated: 2026-07-01_
 
 ## Overview

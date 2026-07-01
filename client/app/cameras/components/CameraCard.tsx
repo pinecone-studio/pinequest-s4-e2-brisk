@@ -41,6 +41,7 @@ export default function CameraCard({
   aiReady = false,
   gridPaused = false,
   onSnapshotPreview,
+  onEvent: _onEvent,
 }: {
   camera: CameraView;
   label: string;
@@ -49,7 +50,7 @@ export default function CameraCard({
   clock?: string;
   liveStream?: boolean;
   onSelect?: () => void;
-  onStreamSettled: (state: "loading" | "online" | "stream_unavailable") => void;
+  onStreamSettled: (state: StreamLoadState) => void;
   onCredentialsRequest?: () => void;
   aiReady?: boolean;
   aiActive?: boolean;
@@ -69,6 +70,7 @@ export default function CameraCard({
   const onSnapshotPreviewRef = useRef(onSnapshotPreview);
   const alertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastPersonAlertRef = useRef(false);
+  const lastViolationKeyRef = useRef<string | null>(null);
 
   const streamUrl = buildCameraStreamUrl(camera);
   const snapshotUrl = scan.snapshotUrl;
@@ -148,6 +150,22 @@ export default function CameraCard({
     }
     lastPersonAlertRef.current = scan.hasPerson;
   }, [flashAlert, scan.hasPerson]);
+
+  useEffect(() => {
+    const violation = scan.lastViolation;
+    if (!violation) return;
+    const key = `${violation.label}:${violation.confidence}`;
+    if (lastViolationKeyRef.current === key) return;
+    lastViolationKeyRef.current = key;
+    if (
+      violation.label === "Cigarette" ||
+      violation.label === "Vape" ||
+      violation.label === "Litter" ||
+      violation.label === "Person"
+    ) {
+      flashAlert(violation.label, violation.confidence);
+    }
+  }, [flashAlert, scan.lastViolation]);
 
   const handleUnavailableClick = () => {
     if (isUnavailable && onCredentialsRequest) {
