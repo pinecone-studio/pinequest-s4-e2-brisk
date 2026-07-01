@@ -1,4 +1,4 @@
-import type { Detection } from "./yoloDecode";
+import type { Detection } from "./detection";
 import type { EvidenceEvent } from "./evidence";
 import { ALERT_THRESHOLD } from "./modelConfig";
 import type { FrameSource } from "./frameSource";
