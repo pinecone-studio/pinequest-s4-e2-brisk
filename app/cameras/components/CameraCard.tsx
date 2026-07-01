@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { buildCameraStreamUrl } from "../lib/cameraApi";
 import type { CameraView } from "../lib/cameraTypes";
+import { subscribeToSnapshots } from "../lib/snapshotScheduler";
 import type { StreamLoadState } from "./CameraGrid";
 import type { Detection } from "@/lib/detection";
 import type { EvidenceEvent } from "@/lib/evidence";
@@ -59,9 +60,12 @@ export default function CameraCard({
   onEvent?: (event: EvidenceEvent) => void;
 }) {
   const [imageLoaded, setImageLoaded] = useState(false);
+  const [snapshotUrl, setSnapshotUrl] = useState<string | null>(null);
   const imgRef = useRef<HTMLImageElement>(null);
   const containerRef = useRef<HTMLElement>(null);
   const onEventRef = useRef(onEvent);
+  const onStreamSettledRef = useRef(onStreamSettled);
+  const snapshotUrlRef = useRef<string | null>(null);
   const lastCaptureRef = useRef({ cigarette: 0, vape: 0, litter: 0 });
 
   const streamUrl = buildCameraStreamUrl(camera);
@@ -89,9 +93,52 @@ export default function CameraCard({
   }, [onEvent]);
 
   useEffect(() => {
+    onStreamSettledRef.current = onStreamSettled;
+  }, [onStreamSettled]);
+
+  useEffect(() => {
     setImageLoaded(false);
+    setSnapshotUrl(null);
+    if (snapshotUrlRef.current) {
+      URL.revokeObjectURL(snapshotUrlRef.current);
+      snapshotUrlRef.current = null;
+    }
     lastCaptureRef.current = { cigarette: 0, vape: 0, litter: 0 };
   }, [camera.id, camera.stream_url, camera.enabled]);
+
+  useEffect(() => {
+    if (!showStream || !streamUrl) return undefined;
+
+    return subscribeToSnapshots({
+      cameraId: camera.id,
+      streamUrl,
+      onSnapshot: (blob) => {
+        const nextUrl = URL.createObjectURL(blob);
+        const previousUrl = snapshotUrlRef.current;
+        snapshotUrlRef.current = nextUrl;
+        setSnapshotUrl(nextUrl);
+        setImageLoaded(true);
+        onStreamSettledRef.current("online");
+        if (previousUrl) {
+          URL.revokeObjectURL(previousUrl);
+        }
+      },
+      onError: () => {
+        if (!snapshotUrlRef.current) {
+          setImageLoaded(false);
+        }
+      },
+    });
+  }, [camera.id, showStream, streamUrl]);
+
+  useEffect(() => {
+    return () => {
+      if (snapshotUrlRef.current) {
+        URL.revokeObjectURL(snapshotUrlRef.current);
+        snapshotUrlRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (camera.enabled === false || streamState !== "loading") return;
@@ -99,7 +146,7 @@ export default function CameraCard({
     const timeout = window.setTimeout(() => {
       setImageLoaded((loaded) => {
         if (!loaded) {
-          onStreamSettled("stream_unavailable");
+          onStreamSettledRef.current("stream_unavailable");
         }
         return loaded;
       });
@@ -108,7 +155,7 @@ export default function CameraCard({
     return () => {
       window.clearTimeout(timeout);
     };
-  }, [camera.id, camera.stream_url, camera.enabled, streamState, onStreamSettled]);
+  }, [camera.id, camera.stream_url, camera.enabled, streamState]);
 
   useEffect(() => {
     if (!showAi) return undefined;
@@ -242,23 +289,27 @@ export default function CameraCard({
     >
       {showStream ? (
         <>
-          <img
-            ref={imgRef}
-            src={camera.stream_url ?? streamUrl}
-            alt={cameraTitle(camera)}
-            className="block h-full w-full object-cover"
-            onLoad={() => {
-              setImageLoaded(true);
-              onStreamSettled("online");
-            }}
-            onError={() => {
-              setImageLoaded(false);
-              onStreamSettled("stream_unavailable");
-            }}
-          />
+          {snapshotUrl ? (
+            <img
+              key={camera.id}
+              ref={imgRef}
+              src={snapshotUrl}
+              alt={cameraTitle(camera)}
+              className="block h-full w-full object-cover"
+              onLoad={() => {
+                setImageLoaded(true);
+              }}
+              onError={() => {
+                setImageLoaded(false);
+              }}
+            />
+          ) : null}
           {streamState === "loading" && !imageLoaded ? (
-            <div className="absolute inset-0 flex items-center justify-center text-[#8a8a8a] text-[12px] tracking-[0.08em] bg-[#0d0d0d]">
-              LOADING
+            <div className="absolute inset-0 flex items-center justify-center overflow-hidden bg-[#0d0d0d]">
+              <div className="absolute inset-0 bg-[linear-gradient(110deg,#0d0d0d_0%,#181818_42%,#0d0d0d_78%)] opacity-80 animate-pulse" />
+              <span className="relative text-[#8a8a8a] text-[12px] tracking-[0.08em]">
+                LOADING
+              </span>
             </div>
           ) : null}
         </>

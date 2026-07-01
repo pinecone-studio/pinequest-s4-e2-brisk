@@ -5,8 +5,9 @@ import CameraCard from "./CameraCard";
 import type { CameraView } from "../lib/cameraTypes";
 import type { EvidenceEvent } from "@/lib/evidence";
 
-const MAX_ACTIVE_STREAM_LOADS = 10;
 const MAX_AI_CAMERAS = 3;
+const CAMERA_RENDER_CHUNK_SIZE = 8;
+const MAX_RENDERED_CAMERAS = 50;
 
 export type StreamLoadState = "not_started" | "loading" | "online" | "stream_unavailable";
 
@@ -33,29 +34,76 @@ export default function CameraGrid({
   modelsReady?: boolean;
   onEvent?: (event: EvidenceEvent) => void;
 }) {
-  const loadableCameraIds = useMemo(
-    () => cameras.filter((camera) => camera.enabled !== false).map((camera) => camera.id),
+  const [renderCount, setRenderCount] = useState(CAMERA_RENDER_CHUNK_SIZE);
+  const cappedCameras = useMemo(
+    () => cameras.slice(0, MAX_RENDERED_CAMERAS),
     [cameras],
+  );
+  const cameraIdsKey = useMemo(
+    () => cappedCameras.map((camera) => camera.id).join("|"),
+    [cappedCameras],
+  );
+  const renderCameras = useMemo(
+    () => cappedCameras.slice(0, renderCount),
+    [cappedCameras, renderCount],
+  );
+  const loadableCameraIds = useMemo(
+    () => renderCameras.filter((camera) => camera.enabled !== false).map((camera) => camera.id),
+    [renderCameras],
+  );
+  const loadableCameraIdsKey = useMemo(
+    () => loadableCameraIds.join("|"),
+    [loadableCameraIds],
   );
   const [streamStates, setStreamStates] = useState<Record<string, StreamLoadState>>({});
   const streamUrlRef = useRef<Record<string, string>>({});
 
   useEffect(() => {
+    setRenderCount(Math.min(CAMERA_RENDER_CHUNK_SIZE, cappedCameras.length));
+  }, [cameraIdsKey, cappedCameras.length]);
+
+  useEffect(() => {
+    if (renderCount >= cappedCameras.length) return;
+
+    const timeout = window.setTimeout(() => {
+      setRenderCount((current) => Math.min(current + CAMERA_RENDER_CHUNK_SIZE, cappedCameras.length));
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [renderCount, cappedCameras.length]);
+
+  useEffect(() => {
+    if (loadableCameraIds.length === 0) {
+      setStreamStates({});
+      return;
+    }
+
     setStreamStates((current) => {
       const next: Record<string, StreamLoadState> = {};
+      let changed = false;
+
       for (const cameraId of loadableCameraIds) {
         next[cameraId] = current[cameraId] ?? "not_started";
+        if (next[cameraId] !== current[cameraId]) {
+          changed = true;
+        }
       }
-      return next;
+      if (Object.keys(current).length !== loadableCameraIds.length) {
+        changed = true;
+      }
+
+      return changed ? next : current;
     });
-  }, [loadableCameraIds]);
+  }, [loadableCameraIdsKey]);
 
   useEffect(() => {
     setStreamStates((current) => {
       const next = { ...current };
       let changed = false;
 
-      for (const camera of cameras) {
+      for (const camera of renderCameras) {
         if (camera.enabled === false) continue;
 
         const nextUrl = camera.stream_url ?? "";
@@ -69,7 +117,7 @@ export default function CameraGrid({
 
       return changed ? next : current;
     });
-  }, [cameras]);
+  }, [renderCameras]);
 
   useEffect(() => {
     if (loadableCameraIds.length === 0) return;
@@ -77,23 +125,20 @@ export default function CameraGrid({
     setStreamStates((current) => {
       const next = { ...current };
       let changed = false;
-      let activeCount = loadableCameraIds.filter((cameraId) => next[cameraId] === "loading").length;
 
       for (const cameraId of loadableCameraIds) {
-        if (activeCount >= MAX_ACTIVE_STREAM_LOADS) break;
         if ((next[cameraId] ?? "not_started") !== "not_started") continue;
 
         next[cameraId] = "loading";
-        activeCount += 1;
         changed = true;
       }
 
       return changed ? next : current;
     });
-  }, [loadableCameraIds, streamStates]);
+  }, [loadableCameraIdsKey]);
 
   const aiCameraIds = useMemo(() => {
-    const online = cameras.filter((c) => c.enabled !== false).map((c) => c.id);
+    const online = renderCameras.filter((c) => c.enabled !== false).map((c) => c.id);
     const ids = new Set<string>();
     if (selectedId && online.includes(selectedId)) {
       ids.add(selectedId);
@@ -103,9 +148,9 @@ export default function CameraGrid({
       ids.add(id);
     }
     return ids;
-  }, [cameras, selectedId]);
+  }, [renderCameras, selectedId]);
 
-  if (cameras.length === 0) {
+  if (cappedCameras.length === 0) {
     return (
       <div className="flex aspect-video items-center justify-center rounded-[10px] border border-[#272727] bg-[#1a1a1a] text-[#8a8a8a] text-[13px]">
         No cameras configured
@@ -114,35 +159,42 @@ export default function CameraGrid({
   }
 
   return (
-    <div
-      className="grid gap-3.5"
-      style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
-    >
-      {cameras.map((camera, index) => (
-        <CameraCard
-          key={camera.id}
-          camera={camera}
-          label={cameraLabel(camera, index)}
-          selected={selectedId === camera.id}
-          onSelect={onSelect ? () => onSelect(camera.id) : undefined}
-          streamState={streamStates[camera.id] ?? "not_started"}
-          onStreamSettled={(state) => {
-            setStreamStates((current) => {
-              if (current[camera.id] === state) return current;
-              return { ...current, [camera.id]: state };
-            });
-            if (state === "stream_unavailable") {
-              onStreamFailed?.(camera.id);
+    <>
+      {cameras.length > MAX_RENDERED_CAMERAS ? (
+        <div className="mb-3 rounded-[10px] border border-[#272727] bg-[#1a1a1a] px-3 py-2 text-[12px] text-[#8a8a8a]">
+          Showing first {MAX_RENDERED_CAMERAS} of {cameras.length} cameras.
+        </div>
+      ) : null}
+      <div
+        className="grid gap-3.5"
+        style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
+      >
+        {renderCameras.map((camera, index) => (
+          <CameraCard
+            key={camera.id}
+            camera={camera}
+            label={cameraLabel(camera, index)}
+            selected={selectedId === camera.id}
+            onSelect={onSelect ? () => onSelect(camera.id) : undefined}
+            streamState={streamStates[camera.id] ?? "not_started"}
+            onStreamSettled={(state) => {
+              setStreamStates((current) => {
+                if (current[camera.id] === state) return current;
+                return { ...current, [camera.id]: state };
+              });
+              if (state === "stream_unavailable") {
+                onStreamFailed?.(camera.id);
+              }
+            }}
+            onCredentialsRequest={
+              onCredentialsRequest ? () => onCredentialsRequest(camera.id) : undefined
             }
-          }}
-          onCredentialsRequest={
-            onCredentialsRequest ? () => onCredentialsRequest(camera.id) : undefined
-          }
-          modelsReady={modelsReady}
-          aiActive={aiCameraIds.has(camera.id)}
-          onEvent={onEvent}
-        />
-      ))}
-    </div>
+            modelsReady={modelsReady}
+            aiActive={aiCameraIds.has(camera.id)}
+            onEvent={onEvent}
+          />
+        ))}
+      </div>
+    </>
   );
 }
