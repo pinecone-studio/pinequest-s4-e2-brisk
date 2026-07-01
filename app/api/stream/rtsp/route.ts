@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { type ChildProcessWithoutNullStreams } from "child_process";
 import { isBenignDecoderNoise, MJPEG_BOUNDARY, startFfmpegDecoder } from "@/lib/ffmpegStream";
+import { FALLBACK_PASSWORDS } from "@/lib/rtspPasswordFallback";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -25,13 +26,6 @@ interface CachedFailure {
 }
 
 const failureCache = new Map<string, CachedFailure>();
-
-// Passwords to try (in addition to the one embedded in the URL) when a camera
-// rejects auth with 401. Configurable via RTSP_PASSWORDS (comma-separated).
-const FALLBACK_PASSWORDS = (process.env.RTSP_PASSWORDS ?? "123456,hk123456")
-  .split(",")
-  .map((entry) => entry.trim())
-  .filter(Boolean);
 
 // RTSP paths to try (in addition to the one in the URL) when a camera returns
 // 404 for the path. Covers common Hikvision/Dahua/generic conventions.

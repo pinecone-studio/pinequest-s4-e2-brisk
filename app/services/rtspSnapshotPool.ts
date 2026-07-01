@@ -1,4 +1,8 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "child_process";
+import {
+  applyPasswordToRtspUrl,
+  buildPasswordCandidates,
+} from "@/lib/rtspPasswordFallback";
 
 const FFMPEG_BIN = process.env.FFMPEG_PATH || "ffmpeg";
 const IDLE_EVICT_MS = 60_000;
@@ -19,7 +23,10 @@ interface FrameWaiter {
 
 interface PoolEntry {
   cameraId: string;
+  sourceRtspUrl: string;
   rtspUrl: string;
+  passwordCandidates: string[];
+  passwordCandidateIndex: number;
   process: ChildProcessWithoutNullStreams | null;
   latestJpeg: Uint8Array | null;
   errorKind: SnapshotErrorKind | null;
@@ -44,7 +51,7 @@ export async function getBufferedSnapshot(
   const entry = ensureEntry(cameraId, rtspUrl);
   touchEntry(entry);
 
-  if (entry.errorKind === "auth") {
+  if (entry.errorKind === "auth" && entry.passwordCandidateIndex + 1 >= entry.passwordCandidates.length) {
     return { error: "auth" };
   }
 
@@ -90,9 +97,9 @@ function ensureEntry(cameraId: string, rtspUrl: string): PoolEntry {
     return entry;
   }
 
-  if (entry.rtspUrl !== rtspUrl) {
+  if (entry.rtspUrl !== rtspUrl && entry.sourceRtspUrl !== rtspUrl) {
     stopEntry(entry);
-    entry.rtspUrl = rtspUrl;
+    configureEntryUrls(entry, rtspUrl);
     entry.latestJpeg = null;
     entry.errorKind = null;
     entry.consecutiveFailures = 0;
@@ -102,10 +109,23 @@ function ensureEntry(cameraId: string, rtspUrl: string): PoolEntry {
   return entry;
 }
 
-function createEntry(cameraId: string, rtspUrl: string): PoolEntry {
-  return {
-    cameraId,
+function configureEntryUrls(entry: PoolEntry, rtspUrl: string) {
+  entry.sourceRtspUrl = rtspUrl;
+  entry.passwordCandidates = buildPasswordCandidates(rtspUrl);
+  entry.passwordCandidateIndex = 0;
+  entry.rtspUrl = applyPasswordToRtspUrl(
     rtspUrl,
+    entry.passwordCandidates[0] ?? "",
+  );
+}
+
+function createEntry(cameraId: string, rtspUrl: string): PoolEntry {
+  const entry: PoolEntry = {
+    cameraId,
+    sourceRtspUrl: rtspUrl,
+    rtspUrl,
+    passwordCandidates: [],
+    passwordCandidateIndex: 0,
     process: null,
     latestJpeg: null,
     errorKind: null,
@@ -119,6 +139,8 @@ function createEntry(cameraId: string, rtspUrl: string): PoolEntry {
     starting: false,
     nextWaiterId: 1,
   };
+  configureEntryUrls(entry, rtspUrl);
+  return entry;
 }
 
 function touchEntry(entry: PoolEntry) {
@@ -209,6 +231,9 @@ function startFfmpeg(entry: PoolEntry) {
 
 function classifyStderr(entry: PoolEntry, line: string) {
   if (/401|403|Unauthorized|authorization failed/i.test(line)) {
+    if (tryNextPasswordCandidate(entry)) {
+      return;
+    }
     entry.errorKind = "auth";
     entry.consecutiveFailures = MAX_CONSECUTIVE_FAILURES;
     stopEntry(entry);
@@ -219,6 +244,44 @@ function classifyStderr(entry: PoolEntry, line: string) {
   if (/timed out|Timeout|Connection refused|No route to host|Could not find codec/i.test(line)) {
     entry.errorKind = entry.errorKind ?? "connection";
   }
+}
+
+function tryNextPasswordCandidate(entry: PoolEntry): boolean {
+  if (entry.passwordCandidateIndex + 1 >= entry.passwordCandidates.length) {
+    return false;
+  }
+
+  killFfmpegProcess(entry);
+  entry.passwordCandidateIndex += 1;
+  entry.rtspUrl = applyPasswordToRtspUrl(
+    entry.sourceRtspUrl,
+    entry.passwordCandidates[entry.passwordCandidateIndex] ?? "",
+  );
+  entry.errorKind = null;
+  entry.consecutiveFailures = 0;
+  entry.latestJpeg = null;
+  entry.backoffMs = 1000;
+  startFfmpeg(entry);
+  return true;
+}
+
+function killFfmpegProcess(entry: PoolEntry) {
+  if (entry.reconnectTimer) {
+    clearTimeout(entry.reconnectTimer);
+    entry.reconnectTimer = null;
+  }
+
+  const process = entry.process;
+  entry.process = null;
+  entry.starting = false;
+  if (!process || process.killed || process.exitCode !== null) return;
+
+  process.kill("SIGTERM");
+  setTimeout(() => {
+    if (process.exitCode === null && !process.killed) {
+      process.kill("SIGKILL");
+    }
+  }, 1000).unref?.();
 }
 
 function extractJpegFrames(entry: PoolEntry) {
@@ -333,21 +396,6 @@ function stopEntry(entry: PoolEntry) {
     clearTimeout(entry.idleTimer);
     entry.idleTimer = null;
   }
-  if (entry.reconnectTimer) {
-    clearTimeout(entry.reconnectTimer);
-    entry.reconnectTimer = null;
-  }
+  killFfmpegProcess(entry);
   failWaiters(entry);
-
-  const process = entry.process;
-  entry.process = null;
-  entry.starting = false;
-  if (!process || process.killed || process.exitCode !== null) return;
-
-  process.kill("SIGTERM");
-  setTimeout(() => {
-    if (process.exitCode === null && !process.killed) {
-      process.kill("SIGKILL");
-    }
-  }, 1000).unref?.();
 }

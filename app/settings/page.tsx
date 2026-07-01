@@ -23,22 +23,77 @@ const DEFAULT_SETTINGS: AppSettings = {
   hospitalAlertContactNumber: "",
 };
 
+interface CameraSettingsResponse {
+  unifi_api_key: string | null;
+  unifi_protect_host: string | null;
+  unifi_protect_username: string | null;
+  unifi_protect_password: string | null;
+}
+
+function emptyToNull(value: string): string | null {
+  const trimmedValue = value.trim();
+  return trimmedValue ? trimmedValue : null;
+}
+
+function cameraSettingsPayload(settings: AppSettings): CameraSettingsResponse {
+  return {
+    unifi_api_key: emptyToNull(settings.unifiApiKey),
+    unifi_protect_host: emptyToNull(settings.unifiProtectHost),
+    unifi_protect_username: emptyToNull(settings.unifiProtectUsername),
+    unifi_protect_password: emptyToNull(settings.unifiProtectPassword),
+  };
+}
+
 export default function SettingsPage() {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [saveConfirmation, setSaveConfirmation] = useState("");
+  const [saveError, setSaveError] = useState("");
 
   useEffect(() => {
+    let isMounted = true;
+
     try {
       const rawSettings = window.localStorage.getItem(SETTINGS_STORAGE_KEY);
-      if (!rawSettings) return;
-
-      setSettings({
-        ...DEFAULT_SETTINGS,
-        ...(JSON.parse(rawSettings) as Partial<AppSettings>),
-      });
+      if (rawSettings) {
+        setSettings({
+          ...DEFAULT_SETTINGS,
+          ...(JSON.parse(rawSettings) as Partial<AppSettings>),
+        });
+      }
     } catch {
       setSettings(DEFAULT_SETTINGS);
     }
+
+    async function loadBackendSettings() {
+      try {
+        const response = await fetch("/api/cameras/settings", { cache: "no-store" });
+        if (!response.ok) return;
+
+        const backendSettings = (await response.json()) as Partial<CameraSettingsResponse>;
+        if (!isMounted) return;
+
+        setSettings((current) => ({
+          ...current,
+          unifiApiKey: backendSettings.unifi_api_key ?? current.unifiApiKey,
+          unifiProtectHost: backendSettings.unifi_protect_host ?? current.unifiProtectHost,
+          unifiProtectUsername: backendSettings.unifi_protect_username ?? current.unifiProtectUsername,
+          unifiProtectPassword:
+            backendSettings.unifi_protect_password &&
+            backendSettings.unifi_protect_password !== "***" &&
+            !current.unifiProtectPassword
+              ? backendSettings.unifi_protect_password
+              : current.unifiProtectPassword,
+        }));
+      } catch {
+        // localStorage remains the fallback for settings that cannot be loaded.
+      }
+    }
+
+    loadBackendSettings();
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   function updateSetting(key: keyof AppSettings, value: string) {
@@ -47,12 +102,30 @@ export default function SettingsPage() {
       [key]: value,
     }));
     setSaveConfirmation("");
+    setSaveError("");
   }
 
-  function handleSave(event: FormEvent<HTMLFormElement>) {
+  async function handleSave(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
-    setSaveConfirmation("Settings saved.");
+    setSaveError("");
+
+    try {
+      const response = await fetch("/api/cameras/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(cameraSettingsPayload(settings)),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Settings API returned ${response.status}`);
+      }
+
+      setSaveConfirmation("Settings saved.");
+    } catch {
+      setSaveConfirmation("");
+      setSaveError("Settings saved locally, but could not sync to the backend.");
+    }
   }
 
   return (
@@ -164,7 +237,11 @@ export default function SettingsPage() {
                 >
                   Save Settings
                 </button>
-                {saveConfirmation ? (
+                {saveError ? (
+                  <span className="text-[13px] text-[#ef4444]" role="status">
+                    {saveError}
+                  </span>
+                ) : saveConfirmation ? (
                   <span className="text-[13px] text-[#22c55e]" role="status">
                     {saveConfirmation}
                   </span>

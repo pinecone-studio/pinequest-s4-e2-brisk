@@ -11,11 +11,9 @@ export function applyCredentialsToCamera(
   retryKeys: Record<string, number>,
 ): CameraView {
   const perCamera = cameraCredentials[camera.id];
-  const passwordList = perCamera
-    ? [perCamera.password]
-    : parsePasswordList(globalCredentials.passwords);
+  const passwordList = resolvePasswordList(perCamera, globalCredentials.passwords);
   const attemptIndex = passwordAttempts[camera.id] ?? 0;
-  const password = passwordList[attemptIndex] ?? "";
+  const password = passwordList[attemptIndex] ?? passwordList[0] ?? "";
   const username = perCamera?.username ?? globalCredentials.username;
 
   if (!camera.host || !camera.rtsp_port) {
@@ -32,16 +30,22 @@ export function applyCredentialsToCamera(
   };
 }
 
+function resolvePasswordList(
+  perCamera: CameraCredentials | undefined,
+  globalPasswords: string,
+): string[] {
+  if (perCamera?.password.trim()) {
+    return [perCamera.password];
+  }
+  return parsePasswordList(globalPasswords);
+}
+
 export function getPasswordListForCamera(
   cameraId: string,
   globalCredentials: GlobalCredentials,
   cameraCredentials: Record<string, CameraCredentials>,
 ): string[] {
-  const perCamera = cameraCredentials[cameraId];
-  if (perCamera) {
-    return [perCamera.password];
-  }
-  return parsePasswordList(globalCredentials.passwords);
+  return resolvePasswordList(cameraCredentials[cameraId], globalCredentials.passwords);
 }
 
 const STORAGE_KEY = "guardai-global-credentials";

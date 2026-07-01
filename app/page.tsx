@@ -18,6 +18,7 @@ import {
   loadGlobalCredentials,
   saveGlobalCredentials,
 } from "./cameras/lib/applyCameraCredentials";
+import { parsePasswordList } from "./cameras/lib/rtspUtils";
 import type { CameraView } from "./cameras/lib/cameraTypes";
 import type { EvidenceEvent } from "@/lib/evidence";
 import EventsPanel from "@/components/EventsPanel";
@@ -80,6 +81,13 @@ export default function HomePage() {
     setGlobalCredentials(loadGlobalCredentials());
   }, []);
 
+  const globalPasswordsRef = useRef(globalCredentials.passwords);
+  useEffect(() => {
+    if (globalPasswordsRef.current === globalCredentials.passwords) return;
+    globalPasswordsRef.current = globalCredentials.passwords;
+    setPasswordAttempts({});
+  }, [globalCredentials.passwords]);
+
   function bumpRetryKeys(cameraIds?: string[]) {
     setRetryKeys((current) => {
       const next = { ...current };
@@ -112,6 +120,27 @@ export default function HomePage() {
   function handleStreamFailed(cameraId: string) {
     const passwords = getPasswordListForCamera(cameraId, globalCredentials, cameraCredentials);
     const currentAttempt = passwordAttempts[cameraId] ?? 0;
+    const currentPassword = passwords[currentAttempt] ?? passwords[0] ?? "";
+    const listIsEffectivelyEmpty =
+      passwords.length === 0 || (passwords.length === 1 && !passwords[0].trim());
+
+    if (!currentPassword.trim() && listIsEffectivelyEmpty) {
+      const globalPasswords = parsePasswordList(globalCredentials.passwords);
+      if (globalPasswords.length > 0) {
+        setCameraCredentials((current) => {
+          if (!current[cameraId]) return current;
+          const next = { ...current };
+          delete next[cameraId];
+          return next;
+        });
+        setPasswordAttempts((current) => ({
+          ...current,
+          [cameraId]: 0,
+        }));
+        bumpRetryKeys([cameraId]);
+        return;
+      }
+    }
 
     if (currentAttempt + 1 < passwords.length) {
       setPasswordAttempts((current) => ({
@@ -125,10 +154,22 @@ export default function HomePage() {
   function handleSaveCameraCredentials(credentials: CameraCredentials) {
     if (!credentialsModalCameraId) return;
 
-    setCameraCredentials((current) => ({
-      ...current,
-      [credentialsModalCameraId]: credentials,
-    }));
+    const cameraId = credentialsModalCameraId;
+    const passwordBlank = !credentials.password.trim();
+    const usernameUnchanged = credentials.username === globalCredentials.username;
+
+    if (passwordBlank && usernameUnchanged) {
+      setCameraCredentials((current) => {
+        const next = { ...current };
+        delete next[cameraId];
+        return next;
+      });
+    } else {
+      setCameraCredentials((current) => ({
+        ...current,
+        [cameraId]: credentials,
+      }));
+    }
     setPasswordAttempts((current) => ({
       ...current,
       [credentialsModalCameraId]: 0,
