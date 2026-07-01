@@ -1,7 +1,7 @@
 "use client";
 
 import type { EvidenceEvent } from "@/lib/evidence";
-import { SMOKING_THRESHOLD } from "@/lib/modelConfig";
+import { SMOKING_THRESHOLD } from "@/lib/aiThresholds";
 
 const CIGARETTE_COLOR = "#ef4444";
 const VAPE_COLOR = "#a855f7";

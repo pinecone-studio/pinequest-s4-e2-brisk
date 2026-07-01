@@ -44,7 +44,7 @@ export default function CameraCard({
   onSelect,
   onStreamSettled,
   onCredentialsRequest,
-  modelsReady = false,
+  aiReady = false,
   aiActive = false,
   onEvent,
 }: {
@@ -55,7 +55,7 @@ export default function CameraCard({
   onSelect?: () => void;
   onStreamSettled: (state: "online" | "stream_unavailable") => void;
   onCredentialsRequest?: () => void;
-  modelsReady?: boolean;
+  aiReady?: boolean;
   aiActive?: boolean;
   onEvent?: (event: EvidenceEvent) => void;
 }) {
@@ -72,7 +72,7 @@ export default function CameraCard({
   const streamActive =
     camera.enabled !== false && (streamState === "loading" || streamState === "online");
   const showStream = streamActive;
-  const showAi = modelsReady && aiActive && streamState === "online" && imageLoaded;
+  const showAi = aiReady && aiActive && streamState === "online" && imageLoaded;
 
   const isDisabled = camera.enabled === false;
   const isUnavailable = streamState === "stream_unavailable";

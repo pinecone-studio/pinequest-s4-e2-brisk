@@ -22,7 +22,7 @@ export default function CameraGrid({
   onSelect,
   onStreamFailed,
   onCredentialsRequest,
-  modelsReady = false,
+  aiReady = false,
   onEvent,
 }: {
   cameras: CameraView[];
@@ -31,7 +31,7 @@ export default function CameraGrid({
   onSelect?: (id: string) => void;
   onStreamFailed?: (cameraId: string) => void;
   onCredentialsRequest?: (cameraId: string) => void;
-  modelsReady?: boolean;
+  aiReady?: boolean;
   onEvent?: (event: EvidenceEvent) => void;
 }) {
   const [renderCount, setRenderCount] = useState(CAMERA_RENDER_CHUNK_SIZE);
@@ -189,7 +189,7 @@ export default function CameraGrid({
             onCredentialsRequest={
               onCredentialsRequest ? () => onCredentialsRequest(camera.id) : undefined
             }
-            modelsReady={modelsReady}
+            aiReady={aiReady}
             aiActive={aiCameraIds.has(camera.id)}
             onEvent={onEvent}
           />

@@ -1,12 +1,11 @@
-// Static export build for Cloudflare Pages (free, no backend).
+// Static export build for Cloudflare Pages.
 //
-// The browser webcam demo (smoking + litter ONNX inference) is fully
-// client-side and needs no server. The app/api/* route handlers are
-// server-only and are incompatible with `output: export`, so we move
-// them aside for the duration of the build, then always restore them.
+// Strips server-only app/api routes during the build (incompatible with
+// `output: export`). For the full Gemini-powered dashboard, run `npm run build`
+// and deploy as a Node server (Vercel, Railway, etc.) instead.
 //
 // Usage: npm run build:static  ->  outputs ./out
-import { existsSync, renameSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, renameSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 
@@ -21,9 +20,11 @@ function restore() {
   }
 }
 
-// Make sure we put the routes back even on crash / Ctrl-C.
 process.on("exit", restore);
-process.on("SIGINT", () => { restore(); process.exit(1); });
+process.on("SIGINT", () => {
+  restore();
+  process.exit(1);
+});
 
 let moved = false;
 try {
@@ -43,21 +44,6 @@ try {
     process.exit(result.status ?? 1);
   }
 
-  // The ONNX runtime is loaded from the jsDelivr CDN (see lib/inference.ts
-  // ort.env.wasm.wasmPaths), so the bundled *.wasm files are never used — and
-  // one of them exceeds Cloudflare Pages' 25 MiB per-file limit. Prune every
-  // .wasm under out/ (public copies + the webpack-bundled _next/static/media one).
-  const pruneWasm = (dir) => {
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      const full = join(dir, entry.name);
-      if (entry.isDirectory()) pruneWasm(full);
-      else if (entry.name.endsWith(".wasm")) {
-        rmSync(full);
-        console.log(`[build:static] pruned unused ${entry.name}`);
-      }
-    }
-  };
-  pruneWasm(join(root, "out"));
   console.log("[build:static] done -> ./out");
 } finally {
   if (moved) restore();

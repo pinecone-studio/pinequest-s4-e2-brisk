@@ -13,7 +13,4 @@ export interface CameraView {
   online: boolean;
   status?: "live" | "online" | "offline" | "unknown" | "stream_unavailable" | "disabled";
   lastSuccessfulConnection?: string;
-  inference_enabled?: boolean;
-  model_path?: string;
-  model_error?: string | null;
 }

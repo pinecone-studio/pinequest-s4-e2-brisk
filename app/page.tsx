@@ -64,6 +64,7 @@ export default function HomePage() {
   const [discoveryStatus, setDiscoveryStatus] = useState<DiscoveryStatus>("completed");
   const [isStartingScan, setIsStartingScan] = useState(false);
   const [scanOverlayDismissed, setScanOverlayDismissed] = useState(false);
+  const [aiReady, setAiReady] = useState(false);
   const credentialsModalOpen = credentialsModalCameraId !== null;
   const credentialsModalOpenRef = useRef(false);
   credentialsModalOpenRef.current = credentialsModalOpen;
@@ -87,6 +88,20 @@ export default function HomePage() {
     globalPasswordsRef.current = globalCredentials.passwords;
     setPasswordAttempts({});
   }, [globalCredentials.passwords]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/gemini")
+      .then((res) => {
+        if (!cancelled) setAiReady(res.ok);
+      })
+      .catch(() => {
+        if (!cancelled) setAiReady(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   function bumpRetryKeys(cameraIds?: string[]) {
     setRetryKeys((current) => {
@@ -534,7 +549,7 @@ export default function HomePage() {
                   onSelect={setSelectedId}
                   onStreamFailed={handleStreamFailed}
                   onCredentialsRequest={setCredentialsModalCameraId}
-                  modelsReady={true}
+                  aiReady={aiReady}
                   onEvent={handleEvent}
                 />
               )}

@@ -1,69 +1,13 @@
-import type { Detection } from "./detection";
 import type { EvidenceEvent } from "./evidence";
-import { ALERT_THRESHOLD } from "./modelConfig";
 import type { FrameSource } from "./frameSource";
 import { getSourceSize } from "./frameSource";
 
-const CIGARETTE_COLOR = "#ef4444";
-const VAPE_COLOR = "#a855f7";
-const LITTER_COLOR = "#f97316";
-const PERSON_COLOR = "#3b82f6";
 const THUMB_WIDTH = 200;
 
 type ViolationKind = {
   label: "Cigarette" | "Vape" | "Litter";
   type: "smoking" | "vape" | "litter";
 };
-
-function getColor(label: string): string {
-  if (label === "Cigarette") return CIGARETTE_COLOR;
-  if (label === "Vape") return VAPE_COLOR;
-  if (label === "Person") return PERSON_COLOR;
-  if (label === "Littering") return LITTER_COLOR;
-  if (label === "Dropped") return "#eab308";
-  return LITTER_COLOR;
-}
-
-export function drawDetectionBoxes(
-  overlay: HTMLCanvasElement,
-  dets: Detection[],
-  displayW: number,
-  displayH: number,
-): void {
-  overlay.width = displayW;
-  overlay.height = displayH;
-  const ctx = overlay.getContext("2d");
-  if (!ctx) return;
-  ctx.clearRect(0, 0, displayW, displayH);
-
-  for (const det of dets) {
-    const [x1, y1, x2, y2] = det.box;
-    const color = getColor(det.label);
-    const isAlert = det.label !== "Person" && det.confidence >= ALERT_THRESHOLD;
-    const lineWidth = det.label === "Person" ? 2 : isAlert ? 3 : 2;
-
-    const px = x1 * displayW;
-    const py = y1 * displayH;
-    const pw = (x2 - x1) * displayW;
-    const ph = (y2 - y1) * displayH;
-
-    ctx.strokeStyle = color;
-    ctx.lineWidth = lineWidth;
-    ctx.strokeRect(px, py, pw, ph);
-
-    const label = `${det.label} ${Math.round(det.confidence * 100)}%`;
-    ctx.font = "bold 13px system-ui, sans-serif";
-    const tw = ctx.measureText(label).width;
-
-    ctx.fillStyle = color;
-    ctx.globalAlpha = 0.9;
-    ctx.fillRect(px, py - 22, tw + 10, 22);
-    ctx.globalAlpha = 1;
-
-    ctx.fillStyle = "#ffffff";
-    ctx.fillText(label, px + 5, py - 6);
-  }
-}
 
 export async function captureEvidenceFromSource(
   source: FrameSource,

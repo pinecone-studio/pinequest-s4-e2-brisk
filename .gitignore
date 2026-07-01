@@ -1,35 +1,31 @@
 # Camera config with real credentials — never commit.
-# Copy cameras.example.json → cameras.json and fill in your credentials locally.
 cameras.json
 
-venv/
-__pycache__/
-*.pyc
-*.pt
-evidence/
-data/
-logs/
+# Local env / secrets
 .env
-output/
-input/
+.env.local
 
-runs/
-
+# Node / Next.js
 node_modules/
 .next/
 out/
 *.tsbuildinfo
+tsconfig.tsbuildinfo
 *.log
 .DS_Store
 .vercel
 
-# Training data — not used at runtime, must never be committed/deployed.
-# Runtime models live in public/models/ and stay tracked.
-models/smoking-dataset/
-models/security-dataset/
-models/vape-cigarette-supplement/
+# Runtime evidence snapshots
+evidence/
+data/
+logs/
+input/
+output/
 
-# YAMNet local cache (downloaded by TensorFlow Hub or manually)
-models/yamnet_cache/
-models/yamnet/
-tsconfig.tsbuildinfo
+# Legacy Python / YOLO artifacts (project is TS + Gemini only)
+venv/
+__pycache__/
+*.pyc
+*.pt
+yolov8n.pt
+runs/
