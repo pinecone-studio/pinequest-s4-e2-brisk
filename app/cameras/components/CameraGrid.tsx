@@ -223,8 +223,9 @@ export default function CameraGrid({
             key={camera.id}
             camera={camera}
             label={cameraLabel(camera, index)}
-            selected={expandedCameraId === camera.id}
+            selected={selectedId === camera.id || expandedCameraId === camera.id}
             clock={clock}
+            liveStream={selectedId === camera.id}
             onSelect={onSelect ? () => handleExpandCamera(camera.id) : undefined}
             streamState={streamStates[camera.id] ?? "not_started"}
             onStreamSettled={(state) => {

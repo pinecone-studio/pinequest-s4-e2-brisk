@@ -55,6 +55,7 @@ export default function CameraCard({
   streamState,
   selected,
   clock,
+  liveStream = false,
   onSelect,
   onStreamSettled,
   onCredentialsRequest,
@@ -69,6 +70,7 @@ export default function CameraCard({
   streamState: StreamLoadState;
   selected?: boolean;
   clock?: string;
+  liveStream?: boolean;
   onSelect?: () => void;
   onStreamSettled: (state: "loading" | "online" | "stream_unavailable") => void;
   onCredentialsRequest?: () => void;
@@ -107,6 +109,14 @@ export default function CameraCard({
   const isDisabled = camera.enabled === false;
   const isUnavailable = streamState === "stream_unavailable";
   const isOnline = streamState === "online";
+
+  // The selected tile upgrades to the real ~12fps MJPEG stream (same source the
+  // expand modal uses); every other tile stays on the light snapshot poll.
+  const liveActive = liveStream && isOnline && inView && !gridPaused && Boolean(streamUrl);
+  const mjpegSrc = `/api/stream/mjpeg?${new URLSearchParams({
+    cameraId: camera.id,
+    streamUrl,
+  }).toString()}`;
 
   const dotColor = isDisabled
     ? "#5c5c5c"
@@ -395,6 +405,17 @@ export default function CameraCard({
               onError={() => {
                 setImageLoaded(false);
               }}
+            />
+          ) : null}
+          {liveActive ? (
+            // Smooth live video for the selected camera, layered over the
+            // snapshot poster so there is no gap while ffmpeg warms up.
+            <img
+              key={mjpegSrc}
+              src={mjpegSrc}
+              alt=""
+              aria-hidden="true"
+              className="absolute inset-0 block h-full w-full object-cover"
             />
           ) : null}
           {streamState === "loading" && !imageLoaded ? (
