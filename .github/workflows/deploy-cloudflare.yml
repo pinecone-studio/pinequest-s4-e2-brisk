@@ -13,6 +13,9 @@ permissions:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: aegis-cctv-front
     steps:
       - uses: actions/checkout@v4
 
@@ -20,6 +23,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
+          cache-dependency-path: aegis-cctv-front/package-lock.json
 
       - name: Install dependencies
         run: npm ci
@@ -32,4 +36,4 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: 70c5710d35eacfea078ac1e1d14edf9c
-          command: pages deploy out --project-name=pinequest --branch=main
+          command: pages deploy aegis-cctv-front/out --project-name=pinequest --branch=main

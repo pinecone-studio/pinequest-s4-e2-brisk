@@ -1,0 +1,35 @@
+{
+  "name": "aegis-cctv-front",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "build:static": "node scripts/build-static.mjs",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "ffmpeg": "^0.0.4",
+    "next": "^15.5.19",
+    "nmap": "^1.1.0",
+    "node-onvif": "^0.1.7",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "rtsp-relay": "^1.9.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.1",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "postcss": "^8.5.16",
+    "tailwindcss": "^4.3.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5"
+  }
+}
