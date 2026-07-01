@@ -1,5 +1,15 @@
 import os from "os";
 
+/**
+ * Skip APIPA / link-local addresses (169.254.0.0/16). These appear on adapters
+ * with no DHCP lease (disconnected NICs, virtual/Hyper-V/WSL switches) and never
+ * host cameras — scanning that dead /24 keeps discovery "running" past the
+ * client's poll window and surfaces as a bogus "scan timed out".
+ */
+function isScannableIpv4(address: string): boolean {
+  return !address.startsWith("169.254.");
+}
+
 export function getAllLocalSubnets(): string[] {
   const sockets = os.networkInterfaces();
   const subnets = new Set<string>();
@@ -8,6 +18,7 @@ export function getAllLocalSubnets(): string[] {
     if (!entries) continue;
     for (const entry of entries) {
       if (entry.family !== "IPv4" || entry.internal) continue;
+      if (!isScannableIpv4(entry.address)) continue;
       const octets = entry.address.split(".");
       if (octets.length !== 4) continue;
       subnets.add(`${octets[0]}.${octets[1]}.${octets[2]}.0/24`);

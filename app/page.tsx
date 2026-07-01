@@ -7,9 +7,12 @@ import CameraCredentialsModal, {
 } from "./cameras/components/CameraCredentialsModal";
 import CredentialsPanel, { type GlobalCredentials } from "./cameras/components/CredentialsPanel";
 import {
+  fetchCameraConfig,
   fetchDiscoveryResults,
   fetchDiscoverySubnet,
+  mergeCameraLists,
   startDiscoveryScan,
+  tryFetchDiscoveryResults,
   type DiscoveryStatus,
 } from "./cameras/lib/cameraApi";
 import {
@@ -22,11 +25,14 @@ import { parsePasswordList } from "./cameras/lib/rtspUtils";
 import type { CameraView } from "./cameras/lib/cameraTypes";
 import type { EvidenceEvent } from "@/lib/evidence";
 import EventsPanel from "@/components/EventsPanel";
+import EventTimeline from "@/components/EventTimeline";
 
 const MAX_EVENTS = 50;
 const DISCOVERY_POLL_INTERVAL_MS = 2000;
-const MAX_DISCOVERY_POLL_MS = 310_000;
-type LayoutCols = 1 | 2 | 3;
+const MAX_DISCOVERY_POLL_MS = 120_000;
+const SCAN_OVERLAY_AUTO_DISMISS_MS = 12_000;
+/** Video-wall presets: 2×2, 3×3, 4×4. */
+type LayoutCols = 2 | 3 | 4;
 
 const TERMINAL_DISCOVERY_STATUSES: DiscoveryStatus[] = ["completed", "failed", "timeout"];
 
@@ -68,11 +74,15 @@ export default function HomePage() {
   const credentialsModalOpen = credentialsModalCameraId !== null;
   const credentialsModalOpenRef = useRef(false);
   credentialsModalOpenRef.current = credentialsModalOpen;
+  const configuredCamerasRef = useRef<CameraView[]>([]);
 
   const isScanning = discoveryStatus === "running";
-  // The overlay follows the scan status, but the user can always dismiss it
-  // (a stalled scan shouldn't trap them behind a full-screen blocker).
-  const showScanOverlay = (isScanning || isStartingScan) && !scanOverlayDismissed;
+  // Only block the UI when scanning and nothing is on screen yet. Users can
+  // always dismiss; we also auto-dismiss so a slow scan never traps the page.
+  const showScanOverlay =
+    (isStartingScan || isScanning) &&
+    cameras.length === 0 &&
+    !scanOverlayDismissed;
 
   const handleEvent = useCallback((event: EvidenceEvent) => {
     setEvents((prev) => [event, ...prev].slice(0, MAX_EVENTS));
@@ -236,14 +246,16 @@ export default function HomePage() {
     });
   }, []);
 
-  const refreshCameraStatus = useCallback(async (): Promise<DiscoveryStatus | null> => {
+  const refreshDiscovery = useCallback(async (): Promise<DiscoveryStatus | null> => {
     if (credentialsModalOpenRef.current) return null;
 
     try {
-      const { cameras: cams, status } = await fetchDiscoveryResults();
-      setDiscoveryStatus(status);
-      applyDiscoveryResults(cams);
-      return status;
+      const discovery = await fetchDiscoveryResults();
+      setDiscoveryStatus(discovery.status);
+      applyDiscoveryResults(
+        mergeCameraLists(configuredCamerasRef.current, discovery.cameras),
+      );
+      return discovery.status;
     } catch (err) {
       setCameraLoadError(err instanceof Error ? err.message : "Failed to load discovered cameras");
       return null;
@@ -257,8 +269,6 @@ export default function HomePage() {
     setScanOverlayDismissed(false);
     setCameraLoadError(null);
     setDiscoveryStatus("running");
-    setCameras([]);
-    setSelectedId(null);
 
     try {
       await fetchDiscoverySubnet();
@@ -266,7 +276,7 @@ export default function HomePage() {
 
       const afterStart = await fetchDiscoveryResults();
       setDiscoveryStatus(afterStart.status);
-      applyDiscoveryResults(afterStart.cameras);
+      applyDiscoveryResults(mergeCameraLists(cameras, afterStart.cameras));
     } catch (err) {
       setDiscoveryStatus("failed");
       setCameraLoadError(
@@ -275,31 +285,44 @@ export default function HomePage() {
     } finally {
       setIsStartingScan(false);
     }
-  }, [applyDiscoveryResults, isScanning, isStartingScan]);
+  }, [applyDiscoveryResults, cameras, isScanning, isStartingScan]);
+
+  useEffect(() => {
+    if (!showScanOverlay) return undefined;
+    const timeout = window.setTimeout(() => {
+      setScanOverlayDismissed(true);
+    }, SCAN_OVERLAY_AUTO_DISMISS_MS);
+    return () => window.clearTimeout(timeout);
+  }, [showScanOverlay]);
 
   useEffect(() => {
     let cancelled = false;
 
     void (async () => {
-      try {
-        const initial = await fetchDiscoveryResults();
-        if (cancelled) return;
+      const [configResult, discoveryResult] = await Promise.allSettled([
+        fetchCameraConfig().catch(() => [] as CameraView[]),
+        tryFetchDiscoveryResults(),
+      ]);
 
-        setDiscoveryStatus(initial.status);
-        applyDiscoveryResults(initial.cameras);
+      if (cancelled) return;
 
-        if (initial.cameras.length === 0 && initial.status !== "running") {
-          await startDiscoveryScan();
-          if (cancelled) return;
-          const afterScan = await fetchDiscoveryResults();
-          if (cancelled) return;
-          setDiscoveryStatus(afterScan.status);
-          applyDiscoveryResults(afterScan.cameras);
-        }
-      } catch (err) {
-        if (cancelled) return;
+      const configured =
+        configResult.status === "fulfilled" ? configResult.value : [];
+      const discovery =
+        discoveryResult.status === "fulfilled" ? discoveryResult.value : null;
+      const discovered = discovery?.cameras ?? [];
+      const status = discovery?.status ?? "completed";
+
+      const merged = mergeCameraLists(configured, discovered);
+      configuredCamerasRef.current = configured;
+      setDiscoveryStatus(status);
+      applyDiscoveryResults(merged);
+
+      if (merged.length === 0 && discoveryResult.status === "rejected") {
         setCameraLoadError(
-          err instanceof Error ? err.message : "Failed to load discovered cameras",
+          discoveryResult.reason instanceof Error
+            ? discoveryResult.reason.message
+            : "Failed to load discovered cameras",
         );
       }
     })();
@@ -311,11 +334,7 @@ export default function HomePage() {
 
   useEffect(() => {
     if (credentialsModalOpen) return;
-
-    if (TERMINAL_DISCOVERY_STATUSES.includes(discoveryStatus)) {
-      void refreshCameraStatus();
-      return;
-    }
+    if (discoveryStatus !== "running") return;
 
     let cancelled = false;
     let timer: ReturnType<typeof setInterval> | null = null;
@@ -330,7 +349,7 @@ export default function HomePage() {
 
     const tick = async (): Promise<DiscoveryStatus | null> => {
       if (cancelled || credentialsModalOpenRef.current) return null;
-      return refreshCameraStatus();
+      return refreshDiscovery();
     };
 
     void tick();
@@ -345,8 +364,6 @@ export default function HomePage() {
 
       const nextStatus = await tick();
       if (!nextStatus) {
-        // Results fetch failed (service unreachable/error). Don't leave the
-        // status stuck on "running" — mark it failed so the overlay clears.
         if (!credentialsModalOpenRef.current) setDiscoveryStatus("failed");
         stopPolling();
         return;
@@ -360,7 +377,7 @@ export default function HomePage() {
       cancelled = true;
       stopPolling();
     };
-  }, [credentialsModalOpen, discoveryStatus, refreshCameraStatus]);
+  }, [credentialsModalOpen, discoveryStatus, refreshDiscovery]);
 
   useEffect(() => {
     setNow(new Date());
@@ -382,11 +399,29 @@ export default function HomePage() {
   const groups = useMemo(() => groupCameras(filteredCameras), [filteredCameras]);
   const onlineCount = useMemo(() => cameras.filter((c) => c.online).length, [cameras]);
 
+  useEffect(() => {
+    if (selectedId !== null || streamedCameras.length === 0) return;
+    const pick =
+      streamedCameras.find((camera) => camera.enabled !== false && camera.online) ??
+      streamedCameras.find((camera) => camera.enabled !== false) ??
+      streamedCameras[0];
+    if (pick) setSelectedId(pick.id);
+  }, [selectedId, streamedCameras]);
+
   const dateLabel = now
     ? now.toLocaleDateString("en-US", { weekday: "long", day: "numeric", month: "long", year: "numeric" })
     : "";
   const timeLabel = now
     ? now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false })
+    : "";
+  // Burned-in per-tile overlay clock (with seconds), shared across the wall.
+  const tileClock = now
+    ? now.toLocaleTimeString("en-US", {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false,
+      })
     : "";
 
   return (
@@ -410,7 +445,7 @@ export default function HomePage() {
                 onClick={() => setScanOverlayDismissed(true)}
                 className="mt-1 h-9 px-4 rounded-[9px] border border-[#333] bg-[#1a1a1a] text-[13px] text-[#e8e8e8] cursor-pointer hover:border-[#f0652c] hover:text-[#f0652c] transition-colors"
               >
-                Cancel
+                Continue without waiting
               </button>
             </div>
           ) : null}
@@ -501,7 +536,9 @@ export default function HomePage() {
                   />
                   {showScanOverlay
                     ? "Scanning network…"
-                    : `${onlineCount}/${cameras.length} online`}
+                    : aiReady
+                      ? `${onlineCount}/${cameras.length} online · AI live on focus camera`
+                      : `${onlineCount}/${cameras.length} online`}
                 </div>
               </div>
             </div>
@@ -515,28 +552,29 @@ export default function HomePage() {
                 <span className="text-[#8a8a8a]">{timeLabel}</span>
               </div>
               <div className="ml-auto flex gap-1 p-1 bg-[#1a1a1a] border border-[#272727] rounded-[10px]">
-                {([1, 2, 3] as LayoutCols[]).map((c) => (
+                {([2, 3, 4] as LayoutCols[]).map((c) => (
                   <button
                     key={c}
-                    className={`w-8 h-[30px] rounded-[7px] border-none cursor-pointer flex items-center justify-center ${
+                    className={`h-[30px] px-2.5 rounded-[7px] border-none cursor-pointer flex items-center gap-1.5 text-[12px] font-semibold ${
                       columns === c ? "bg-[#1f1f1f] text-[#e8e8e8]" : "bg-transparent text-[#5c5c5c]"
                     }`}
                     onClick={() => setColumns(c)}
-                    title={`${c} column${c > 1 ? "s" : ""}`}
+                    title={`${c}×${c} video wall`}
                   >
-                    {c === 1 ? (
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="4" y="5" width="16" height="14" rx="1.5" /></svg>
-                    ) : c === 2 ? (
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="3" y="5" width="8" height="14" rx="1.5" /><rect x="13" y="5" width="8" height="14" rx="1.5" /></svg>
+                    {c === 2 ? (
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="3" y="3" width="8" height="8" rx="1.2" /><rect x="13" y="3" width="8" height="8" rx="1.2" /><rect x="3" y="13" width="8" height="8" rx="1.2" /><rect x="13" y="13" width="8" height="8" rx="1.2" /></svg>
+                    ) : c === 3 ? (
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><rect x="2.5" y="2.5" width="5.5" height="5.5" rx="1" /><rect x="9.25" y="2.5" width="5.5" height="5.5" rx="1" /><rect x="16" y="2.5" width="5.5" height="5.5" rx="1" /><rect x="2.5" y="9.25" width="5.5" height="5.5" rx="1" /><rect x="9.25" y="9.25" width="5.5" height="5.5" rx="1" /><rect x="16" y="9.25" width="5.5" height="5.5" rx="1" /><rect x="2.5" y="16" width="5.5" height="5.5" rx="1" /><rect x="9.25" y="16" width="5.5" height="5.5" rx="1" /><rect x="16" y="16" width="5.5" height="5.5" rx="1" /></svg>
                     ) : (
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="3" y="4" width="8" height="7" rx="1.2" /><rect x="13" y="4" width="8" height="7" rx="1.2" /><rect x="3" y="13" width="8" height="7" rx="1.2" /><rect x="13" y="13" width="8" height="7" rx="1.2" /></svg>
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4"><rect x="2" y="2" width="4" height="4" rx="0.8" /><rect x="7.33" y="2" width="4" height="4" rx="0.8" /><rect x="12.66" y="2" width="4" height="4" rx="0.8" /><rect x="18" y="2" width="4" height="4" rx="0.8" /><rect x="2" y="7.33" width="4" height="4" rx="0.8" /><rect x="7.33" y="7.33" width="4" height="4" rx="0.8" /><rect x="12.66" y="7.33" width="4" height="4" rx="0.8" /><rect x="18" y="7.33" width="4" height="4" rx="0.8" /><rect x="2" y="12.66" width="4" height="4" rx="0.8" /><rect x="7.33" y="12.66" width="4" height="4" rx="0.8" /><rect x="12.66" y="12.66" width="4" height="4" rx="0.8" /><rect x="18" y="12.66" width="4" height="4" rx="0.8" /><rect x="2" y="18" width="4" height="4" rx="0.8" /><rect x="7.33" y="18" width="4" height="4" rx="0.8" /><rect x="12.66" y="18" width="4" height="4" rx="0.8" /><rect x="18" y="18" width="4" height="4" rx="0.8" /></svg>
                     )}
+                    {c}×{c}
                   </button>
                 ))}
               </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto px-[22px] pb-[22px]">
+            <div className="flex-1 overflow-y-auto px-[22px] pb-4">
               {cameraLoadError ? (
                 <div className="flex min-h-[400px] items-center justify-center rounded-[10px] border border-[#272727] bg-[#1a1a1a] text-[#ef4444] text-[13px] px-4 text-center">
                   {cameraLoadError}
@@ -546,6 +584,7 @@ export default function HomePage() {
                   cameras={filteredCameras}
                   columns={columns}
                   selectedId={selectedId}
+                  clock={tileClock}
                   onSelect={setSelectedId}
                   onStreamFailed={handleStreamFailed}
                   onCredentialsRequest={setCredentialsModalCameraId}
@@ -553,6 +592,10 @@ export default function HomePage() {
                   onEvent={handleEvent}
                 />
               )}
+            </div>
+
+            <div className="shrink-0 px-[22px] pb-[22px] pt-1">
+              <EventTimeline events={events} />
             </div>
           </section>
 

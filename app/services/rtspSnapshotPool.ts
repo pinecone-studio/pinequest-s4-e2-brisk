@@ -3,9 +3,14 @@ import {
   applyPasswordToRtspUrl,
   buildPasswordCandidates,
 } from "@/lib/rtspPasswordFallback";
+import {
+  MAX_ACTIVE_SNAPSHOT_STREAMS,
+  SNAPSHOT_IDLE_EVICT_MS,
+  SNAPSHOT_OUTPUT_WIDTH,
+} from "@/lib/snapshotPoolConfig";
 
 const FFMPEG_BIN = process.env.FFMPEG_PATH || "ffmpeg";
-const IDLE_EVICT_MS = 60_000;
+const IDLE_EVICT_MS = SNAPSHOT_IDLE_EVICT_MS;
 const MAX_CONSECUTIVE_FAILURES = 5;
 const INITIAL_CONNECT_TIMEOUT_MS = 12_000;
 const MAX_BACKOFF_MS = 30_000;
@@ -82,6 +87,15 @@ export async function getBufferedSnapshot(
   }
 }
 
+export function buildSnapshotEtag(jpeg: Uint8Array): string {
+  const len = jpeg.byteLength;
+  if (len === 0) return 'W/"0"';
+  const head = jpeg[0] ?? 0;
+  const tail = jpeg[len - 1] ?? 0;
+  const mid = jpeg[Math.floor(len / 2)] ?? 0;
+  return `W/"${len}-${head}-${mid}-${tail}"`;
+}
+
 export function evictSnapshotCamera(cameraId: string) {
   const entry = pool.get(cameraId);
   if (!entry) return;
@@ -92,6 +106,7 @@ export function evictSnapshotCamera(cameraId: string) {
 function ensureEntry(cameraId: string, rtspUrl: string): PoolEntry {
   let entry = pool.get(cameraId);
   if (!entry) {
+    enforcePoolCapacity(cameraId);
     entry = createEntry(cameraId, rtspUrl);
     pool.set(cameraId, entry);
     return entry;
@@ -107,6 +122,19 @@ function ensureEntry(cameraId: string, rtspUrl: string): PoolEntry {
   }
 
   return entry;
+}
+
+function enforcePoolCapacity(exemptCameraId: string) {
+  if (pool.size < MAX_ACTIVE_SNAPSHOT_STREAMS) return;
+
+  const candidates = [...pool.entries()]
+    .filter(([id]) => id !== exemptCameraId)
+    .sort(([, a], [, b]) => a.lastRequestAt - b.lastRequestAt);
+
+  while (pool.size >= MAX_ACTIVE_SNAPSHOT_STREAMS && candidates.length > 0) {
+    const [cameraId] = candidates.shift()!;
+    evictSnapshotCamera(cameraId);
+  }
 }
 
 function configureEntryUrls(entry: PoolEntry, rtspUrl: string) {
@@ -173,17 +201,19 @@ function startFfmpeg(entry: PoolEntry) {
       "tcp",
       "-timeout",
       "8000000",
+      "-fflags",
+      "+discardcorrupt",
       "-i",
       entry.rtspUrl,
       "-an",
       "-vf",
-      "fps=1",
-      "-f",
-      "image2pipe",
-      "-vcodec",
+      `fps=1,scale=${SNAPSHOT_OUTPUT_WIDTH}:-2`,
+      "-c:v",
       "mjpeg",
       "-q:v",
       "5",
+      "-f",
+      "image2pipe",
       "pipe:1",
     ],
     { stdio: ["pipe", "pipe", "pipe"] },

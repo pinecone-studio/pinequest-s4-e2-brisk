@@ -95,6 +95,39 @@ export async function fetchDiscoveryResults(): Promise<DiscoveryResults> {
   throw new Error(`Camera discovery service is unavailable. ${SERVICE_HINT}`);
 }
 
+/** Fast discovery fetch — returns null on timeout/unavailable instead of throwing. */
+export async function tryFetchDiscoveryResults(
+  timeoutMs = 4_000,
+): Promise<DiscoveryResults | null> {
+  try {
+    return await Promise.race([
+      fetchDiscoveryResults(),
+      new Promise<null>((resolve) => {
+        setTimeout(() => resolve(null), timeoutMs);
+      }),
+    ]);
+  } catch {
+    return null;
+  }
+}
+
+/** Prefer configured cameras; append discovered devices without duplicating ids. */
+export function mergeCameraLists(
+  configured: CameraView[],
+  discovered: CameraView[],
+): CameraView[] {
+  const byId = new Map<string, CameraView>();
+  for (const camera of configured) {
+    byId.set(camera.id, camera);
+  }
+  for (const camera of discovered) {
+    if (!byId.has(camera.id)) {
+      byId.set(camera.id, camera);
+    }
+  }
+  return Array.from(byId.values());
+}
+
 export async function fetchDiscoveredCameras(): Promise<CameraView[]> {
   const { cameras } = await fetchDiscoveryResults();
   return cameras;

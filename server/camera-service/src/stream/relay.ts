@@ -13,7 +13,7 @@ export function createStreamRelay(app: Express) {
     const camera = getCamera(String(req.params.cameraId));
     if (!camera) {
       (ws as { close: () => void }).close();
-      return;
+      return; 
     }
 
     const handleStream = proxy({

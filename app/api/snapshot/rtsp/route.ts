@@ -1,12 +1,11 @@
 import { NextResponse } from "next/server";
 import { loadCameraStreamSource } from "../../cameras/serverCameraConfig";
-import { getBufferedSnapshot } from "@/app/services/rtspSnapshotPool";
+import { buildSnapshotEtag, getBufferedSnapshot } from "@/app/services/rtspSnapshotPool";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
+export async function GET(request: Request) {  const { searchParams } = new URL(request.url);
   const cameraId = searchParams.get("cameraId") ?? "unknown";
   const streamUrl = searchParams.get("streamUrl") ?? "";
   const rtspUrl = await resolveRtspUrl(cameraId, streamUrl, request.url);
@@ -23,10 +22,23 @@ export async function GET(request: Request) {
     return new Response("Snapshot unavailable", { status: 503 });
   }
 
+  const etag = buildSnapshotEtag(jpeg);
+  const ifNoneMatch = request.headers.get("if-none-match");
+  if (ifNoneMatch && ifNoneMatch === etag) {
+    return new Response(null, {
+      status: 304,
+      headers: {
+        ETag: etag,
+        "Cache-Control": "no-store",
+      },
+    });
+  }
+
   const body = jpeg.buffer.slice(jpeg.byteOffset, jpeg.byteOffset + jpeg.byteLength) as ArrayBuffer;
   return new Response(body, {
     headers: {
       "Content-Type": "image/jpeg",
+      ETag: etag,
       "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
       Pragma: "no-cache",
     },

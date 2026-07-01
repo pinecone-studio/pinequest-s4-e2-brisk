@@ -63,8 +63,16 @@ export async function loadCameraStreamSource(cameraId: string): Promise<CameraSt
 
 async function loadRawCameraConfig(): Promise<RawCameraConfig> {
   const configPath = path.join(process.cwd(), "cameras.json");
-  const raw = await fs.readFile(configPath, "utf8");
-  return JSON.parse(raw);
+  try {
+    const raw = await fs.readFile(configPath, "utf8");
+    return JSON.parse(raw);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") {
+      return { cameras: [] };
+    }
+    throw error;
+  }
 }
 
 export function normalizeCameraConfig(config: RawCameraConfig): CameraView[] {

@@ -5,9 +5,9 @@ import CameraCard from "./CameraCard";
 import type { CameraView } from "../lib/cameraTypes";
 import type { EvidenceEvent } from "@/lib/evidence";
 
-const MAX_AI_CAMERAS = 3;
-const CAMERA_RENDER_CHUNK_SIZE = 8;
-const MAX_RENDERED_CAMERAS = 50;
+const CAMERA_RENDER_CHUNK_SIZE = 6;
+const CAMERA_CHUNK_DELAY_MS = 400;
+const MAX_RENDERED_CAMERAS = 36;
 
 export type StreamLoadState = "not_started" | "loading" | "online" | "stream_unavailable";
 
@@ -19,6 +19,7 @@ export default function CameraGrid({
   cameras,
   columns = 2,
   selectedId,
+  clock,
   onSelect,
   onStreamFailed,
   onCredentialsRequest,
@@ -28,6 +29,7 @@ export default function CameraGrid({
   cameras: CameraView[];
   columns?: number;
   selectedId?: string | null;
+  clock?: string;
   onSelect?: (id: string) => void;
   onStreamFailed?: (cameraId: string) => void;
   onCredentialsRequest?: (cameraId: string) => void;
@@ -67,7 +69,7 @@ export default function CameraGrid({
 
     const timeout = window.setTimeout(() => {
       setRenderCount((current) => Math.min(current + CAMERA_RENDER_CHUNK_SIZE, cappedCameras.length));
-    }, 0);
+    }, CAMERA_CHUNK_DELAY_MS);
 
     return () => {
       window.clearTimeout(timeout);
@@ -137,19 +139,6 @@ export default function CameraGrid({
     });
   }, [loadableCameraIdsKey]);
 
-  const aiCameraIds = useMemo(() => {
-    const online = renderCameras.filter((c) => c.enabled !== false).map((c) => c.id);
-    const ids = new Set<string>();
-    if (selectedId && online.includes(selectedId)) {
-      ids.add(selectedId);
-    }
-    for (const id of online) {
-      if (ids.size >= MAX_AI_CAMERAS) break;
-      ids.add(id);
-    }
-    return ids;
-  }, [renderCameras, selectedId]);
-
   if (cappedCameras.length === 0) {
     return (
       <div className="flex aspect-video items-center justify-center rounded-[10px] border border-[#272727] bg-[#1a1a1a] text-[#8a8a8a] text-[13px]">
@@ -166,7 +155,7 @@ export default function CameraGrid({
         </div>
       ) : null}
       <div
-        className="grid gap-3.5"
+        className="grid gap-2.5"
         style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
       >
         {renderCameras.map((camera, index) => (
@@ -175,6 +164,7 @@ export default function CameraGrid({
             camera={camera}
             label={cameraLabel(camera, index)}
             selected={selectedId === camera.id}
+            clock={clock}
             onSelect={onSelect ? () => onSelect(camera.id) : undefined}
             streamState={streamStates[camera.id] ?? "not_started"}
             onStreamSettled={(state) => {
@@ -190,7 +180,6 @@ export default function CameraGrid({
               onCredentialsRequest ? () => onCredentialsRequest(camera.id) : undefined
             }
             aiReady={aiReady}
-            aiActive={aiCameraIds.has(camera.id)}
             onEvent={onEvent}
           />
         ))}
