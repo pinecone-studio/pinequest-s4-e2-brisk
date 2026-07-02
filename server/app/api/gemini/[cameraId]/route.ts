@@ -55,23 +55,32 @@ export async function POST(request: NextRequest, context: RouteContext) {
       );
     }
 
-    const { has_person } = await yoloResponse.json();
-    console.log(`[yolo:${cameraId}] Inference completed. Has Person: ${has_person}`);
+    const yolo = await yoloResponse.json();
+    const hasPerson = yolo.has_person === true;
+    const hasSmoke = yolo.has_smoke === true;
+    const hasLitter = yolo.has_litter === true;
+    const litterBoxes = Array.isArray(yolo.litter_boxes) ? yolo.litter_boxes : [];
+    const personBoxes = Array.isArray(yolo.person_boxes) ? yolo.person_boxes : [];
+    // Fallback: if an older models build without smoke/litter is deployed, gate
+    // Gemini on has_person alone (previous behaviour) so the pipeline still runs.
+    const shouldAnalyze =
+      typeof yolo.should_analyze === "boolean" ? yolo.should_analyze : hasPerson;
 
-    // 3. ХҮН БАЙВАЛ: true утга болон Base64 зургийг хамт буцаана
-    if (has_person) {
-      return NextResponse.json({
-        cameraId,
-        has_person: true,
-        image: base64Image, // Дараагийн хүн энийг аваад Gemini руу шиднэ
-      });
-    }
+    console.log(
+      `[yolo:${cameraId}] person=${hasPerson} smoke=${hasSmoke} litter=${hasLitter} -> analyze=${shouldAnalyze}`,
+    );
 
-    // 4. ХҮН БАЙХГҮЙ БОЛ: false гээд зургийг null болгож буцаана
+    // Return the person image only when a person is present (for the UI crop);
+    // should_analyze is what gates the Gemini call downstream.
     return NextResponse.json({
       cameraId,
-      has_person: false,
-      image: null,
+      has_person: hasPerson,
+      person_boxes: personBoxes,
+      has_smoke: hasSmoke,
+      has_litter: hasLitter,
+      litter_boxes: litterBoxes,
+      should_analyze: shouldAnalyze,
+      image: hasPerson ? base64Image : null,
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Unknown error";

@@ -35,10 +35,10 @@ export async function captureEvidenceFromDataUrl(
   confidence: number,
   onEvent?: (event: EvidenceEvent) => void,
   note?: string,
-): Promise<void> {
+): Promise<EvidenceEvent | null> {
   try {
     const img = await loadImageFromDataUrl(dataUrl);
-    await captureEvidenceFromSource(
+    return await captureEvidenceFromSource(
       img,
       cameraId,
       sourceLabel,
@@ -49,6 +49,7 @@ export async function captureEvidenceFromDataUrl(
     );
   } catch {
     /* ignore decode errors */
+    return null;
   }
 }
 
@@ -60,15 +61,15 @@ export async function captureEvidenceFromSource(
   confidence: number,
   onEvent?: (event: EvidenceEvent) => void,
   note?: string,
-): Promise<void> {
+): Promise<EvidenceEvent | null> {
   const { width: w, height: h } = getSourceSize(source);
-  if (!w || !h) return;
+  if (!w || !h) return null;
 
   const canvas = document.createElement("canvas");
   canvas.width = w;
   canvas.height = h;
   const ctx = canvas.getContext("2d");
-  if (!ctx) return;
+  if (!ctx) return null;
   ctx.drawImage(source, 0, 0, w, h);
 
   const thumbCanvas = document.createElement("canvas");
@@ -128,19 +129,19 @@ export async function captureEvidenceFromSource(
     saveError = "could not encode frame";
   }
 
-  onEvent?.(
-    mapToEvidenceEvent({
-      cameraId,
-      sourceLabel,
-      label: kind.label,
-      confidence,
-      occurredAt,
-      thumb,
-      note,
-      response,
-      saveError,
-    }),
-  );
+  const event = mapToEvidenceEvent({
+    cameraId,
+    sourceLabel,
+    label: kind.label,
+    confidence,
+    occurredAt,
+    thumb,
+    note,
+    response,
+    saveError,
+  });
+  onEvent?.(event);
+  return event;
 }
 
 export const CIGARETTE_KIND: ViolationKind = { label: "Cigarette", type: "smoking" };

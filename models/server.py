@@ -1,54 +1,95 @@
 import io
 import base64
-import sys
-import subprocess
-
-# 1. Automatic Dependency Check & Verification
-REQUIRED_PACKAGES = ["litserve", "ultralytics", "pillow"]
-for package in REQUIRED_PACKAGES:
-    try:
-        __import__(package if package != "pillow" else "PIL")
-    except ImportError:
-        print(f"📦 Package '{package}' is missing. Installing...")
-        subprocess.check_call([sys.executable, "-m", "pip", "install", package])
 
 import litserve as ls
 from PIL import Image
 from ultralytics import YOLO
+from huggingface_hub import hf_hub_download
 
-# 2. High-Performance Person Detection API Engine
-class YOLOv8PersonDetector(ls.LitAPI):
+# Person must be fairly confident before we bother running the other models.
+PERSON_CONF = 0.75
+# Smoke / litter are the CHEAP GATE for Gemini. Keep the threshold LOW on purpose:
+# we would rather send a borderline case to Gemini (accurate judge) than miss a
+# real violation here. High recall, low precision by design.
+GATE_CONF = 0.25
+
+PERSON_CLASS_ID = 0
+
+
+class ViolationGate(ls.LitAPI):
     def setup(self, device):
-        # Load small footprint nano weights onto active device (CPU/GPU)
-        self.model = YOLO("yolov8n.pt")
-        self.PERSON_CLASS_ID = 0
+        # Stage 1 — person detector (stock COCO, class 0).
+        self.person = YOLO("yolov8n.pt")
+
+        # Stage 2 — cheap violation gates, pulled from Hugging Face at startup.
+        smoke_weights = hf_hub_download("kittendev/YOLOv8m-smoke-detection", "best.pt")
+        self.smoke = YOLO(smoke_weights)
+
+        litter_weights = hf_hub_download(
+            "turhancan97/yolov8-segment-trash-detection", "yolov8m-seg.pt"
+        )
+        self.litter = YOLO(litter_weights)
 
     def decode_request(self, request):
-        base64_data = request.get("image")
-        if not base64_data:
+        data = request.get("image")
+        if not data:
             raise ValueError("Payload missing field: 'image'")
-
-        # Clean up Next.js Data URL headers if sent
-        if "," in base64_data:
-            base64_data = base64_data.split(",")[1]
-
-        image_bytes = base64.b64decode(base64_data)
+        if "," in data:  # strip data-URL header if the client sent one
+            data = data.split(",")[1]
+        image_bytes = base64.b64decode(data)
         return Image.open(io.BytesIO(image_bytes)).convert("RGB")
 
-    def predict(self, image):
-        # Target only human entities (class 0) to maximize performance speed
-        results = self.model(image, classes=[self.PERSON_CLASS_ID], verbose=False)
-        boxes = results[0].boxes
+    @staticmethod
+    def _boxes(result):
+        # Normalized [x1, y1, x2, y2] so the client can match boxes across frames
+        # regardless of resolution.
+        if len(result.boxes) == 0:
+            return []
+        return [[round(float(v), 4) for v in box] for box in result.boxes.xyxyn.tolist()]
 
-        # Immediate short-circuit if a human is detected above 75% confidence
-        has_person = any(float(box.conf[0]) >= 0.75 for box in boxes) if len(boxes) > 0 else False
-        return {"has_person": has_person}
+    def predict(self, images):
+        # LitServe batches concurrent requests, so `images` is a LIST of frames.
+        # YOLO runs a whole batch in one GPU call -> big throughput win for many
+        # cameras. Litter + person run on every frame; smoke runs on the batch too
+        # (cheap once batched) and is only reported when a person is present.
+        litter_results = self.litter(images, conf=GATE_CONF, verbose=False)
+        person_results = self.person(
+            images, conf=PERSON_CONF, classes=[PERSON_CLASS_ID], verbose=False
+        )
+        smoke_results = self.smoke(images, conf=GATE_CONF, verbose=False)
+
+        outputs = []
+        for i in range(len(images)):
+            person_boxes = self._boxes(person_results[i])
+            has_person = len(person_boxes) > 0
+            litter_boxes = self._boxes(litter_results[i])
+            has_smoke = has_person and len(smoke_results[i].boxes) > 0
+            outputs.append(
+                {
+                    "has_person": has_person,
+                    "person_boxes": person_boxes,
+                    "has_smoke": has_smoke,
+                    "has_litter": len(litter_boxes) > 0,
+                    "litter_boxes": litter_boxes,
+                    # Coarse flag for the smoke path / legacy fallback. Litter is
+                    # judged by the client's drop -> leave -> handled state machine.
+                    "should_analyze": has_smoke or len(litter_boxes) > 0,
+                }
+            )
+        return outputs
 
     def encode_response(self, output):
         return output
 
+
 if __name__ == "__main__":
-    print("🚀 Initializing native LitServe framework on port 8000...")
-    api = YOLOv8PersonDetector()
-    server = ls.LitServer(api, accelerator="auto")
+    print("Initializing ViolationGate (person -> smoke/litter) on port 8000...")
+    # Batch concurrent camera requests into one GPU call. Tune for your load:
+    # bigger batch = more throughput, small timeout = low added latency.
+    server = ls.LitServer(
+        ViolationGate(),
+        accelerator="auto",
+        max_batch_size=16,
+        batch_timeout=0.02,
+    )
     server.run(port=8000)
