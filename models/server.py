@@ -1,54 +1,76 @@
 import io
 import base64
-import sys
-import subprocess
-
-# 1. Automatic Dependency Check & Verification
-REQUIRED_PACKAGES = ["litserve", "ultralytics", "pillow"]
-for package in REQUIRED_PACKAGES:
-    try:
-        __import__(package if package != "pillow" else "PIL")
-    except ImportError:
-        print(f"📦 Package '{package}' is missing. Installing...")
-        subprocess.check_call([sys.executable, "-m", "pip", "install", package])
 
 import litserve as ls
 from PIL import Image
 from ultralytics import YOLO
+from huggingface_hub import hf_hub_download
 
-# 2. High-Performance Person Detection API Engine
-class YOLOv8PersonDetector(ls.LitAPI):
+# Person must be fairly confident before we bother running the other models.
+PERSON_CONF = 0.75
+# Smoke / litter are the CHEAP GATE for Gemini. Keep the threshold LOW on purpose:
+# we would rather send a borderline case to Gemini (accurate judge) than miss a
+# real violation here. High recall, low precision by design.
+GATE_CONF = 0.25
+
+PERSON_CLASS_ID = 0
+
+
+class ViolationGate(ls.LitAPI):
     def setup(self, device):
-        # Load small footprint nano weights onto active device (CPU/GPU)
-        self.model = YOLO("yolov8n.pt")
-        self.PERSON_CLASS_ID = 0
+        # Stage 1 — person detector (stock COCO, class 0).
+        self.person = YOLO("yolov8n.pt")
+
+        # Stage 2 — cheap violation gates, pulled from Hugging Face at startup.
+        smoke_weights = hf_hub_download("kittendev/YOLOv8m-smoke-detection", "best.pt")
+        self.smoke = YOLO(smoke_weights)
+
+        litter_weights = hf_hub_download(
+            "turhancan97/yolov8-segment-trash-detection", "yolov8m-seg.pt"
+        )
+        self.litter = YOLO(litter_weights)
 
     def decode_request(self, request):
-        base64_data = request.get("image")
-        if not base64_data:
+        data = request.get("image")
+        if not data:
             raise ValueError("Payload missing field: 'image'")
-
-        # Clean up Next.js Data URL headers if sent
-        if "," in base64_data:
-            base64_data = base64_data.split(",")[1]
-
-        image_bytes = base64.b64decode(base64_data)
+        if "," in data:  # strip data-URL header if the client sent one
+            data = data.split(",")[1]
+        image_bytes = base64.b64decode(data)
         return Image.open(io.BytesIO(image_bytes)).convert("RGB")
 
-    def predict(self, image):
-        # Target only human entities (class 0) to maximize performance speed
-        results = self.model(image, classes=[self.PERSON_CLASS_ID], verbose=False)
-        boxes = results[0].boxes
+    def _detects(self, model, image, conf, classes=None):
+        result = model(image, conf=conf, classes=classes, verbose=False)[0]
+        return len(result.boxes) > 0
 
-        # Immediate short-circuit if a human is detected above 75% confidence
-        has_person = any(float(box.conf[0]) >= 0.75 for box in boxes) if len(boxes) > 0 else False
-        return {"has_person": has_person}
+    def predict(self, image):
+        # Stage 1: no person -> nothing else runs, definitely no Gemini.
+        has_person = self._detects(image=image, model=self.person, conf=PERSON_CONF, classes=[PERSON_CLASS_ID])
+        if not has_person:
+            return {
+                "has_person": False,
+                "has_smoke": False,
+                "has_litter": False,
+                "should_analyze": False,
+            }
+
+        # Stage 2: person present -> run the cheap gates.
+        has_smoke = self._detects(image=image, model=self.smoke, conf=GATE_CONF)
+        has_litter = self._detects(image=image, model=self.litter, conf=GATE_CONF)
+
+        return {
+            "has_person": True,
+            "has_smoke": has_smoke,
+            "has_litter": has_litter,
+            # Gemini is only called when a person AND a smoke/litter candidate are present.
+            "should_analyze": has_smoke or has_litter,
+        }
 
     def encode_response(self, output):
         return output
 
+
 if __name__ == "__main__":
-    print("🚀 Initializing native LitServe framework on port 8000...")
-    api = YOLOv8PersonDetector()
-    server = ls.LitServer(api, accelerator="auto")
+    print("Initializing ViolationGate (person -> smoke/litter) on port 8000...")
+    server = ls.LitServer(ViolationGate(), accelerator="auto")
     server.run(port=8000)

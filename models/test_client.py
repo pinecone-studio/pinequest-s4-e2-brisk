@@ -1,13 +1,15 @@
-"""Minimal client to test the running CCTV analytics server.
+"""Minimal client to test the running CCTV violation-gate server.
 
 Usage:
     python test_client.py path/to/frame.jpg
-    python test_client.py path/to/frame.jpg http://localhost:8000/predict
+    python test_client.py path/to/frame.jpg https://<lightning-url>/predict
 """
 
+import base64
 import sys
 
 import requests
+
 
 def main() -> None:
     if len(sys.argv) < 2:
@@ -18,15 +20,10 @@ def main() -> None:
     url = sys.argv[2] if len(sys.argv) > 2 else "http://localhost:8000/predict"
 
     with open(image_path, "rb") as fh:
-        jpeg_bytes = fh.read()
+        b64 = base64.b64encode(fh.read()).decode("ascii")
 
-    # Send raw JPEG bytes as the request body.
-    response = requests.post(
-        url,
-        data=jpeg_bytes,
-        headers={"Content-Type": "application/octet-stream"},
-        timeout=30,
-    )
+    # Server expects JSON {"image": "<base64-jpeg>"}.
+    response = requests.post(url, json={"image": b64}, timeout=60)
     response.raise_for_status()
     print(response.json())
 

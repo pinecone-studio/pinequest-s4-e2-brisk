@@ -1,72 +1,61 @@
-# ml — CCTV analytics API (LitServe + YOLO)
+# models — CCTV violation gate (LitServe + YOLO)
 
-GPU-accelerated inference server for the Aegis CCTV system. Loads two YOLO models
-and returns categorized detections for each incoming JPEG frame:
-
-| Model              | Group      | Detects            |
-|--------------------|------------|--------------------|
-| `weights/fire_smoke.pt` | `safety`   | fire / smoke       |
-| `weights/litter_cig.pt` | `behavior` | litter / cigarettes |
-
-> Model filenames are placeholders — swap in the correct weights under `weights/`.
-
-## Layout
+GPU inference server for the Aegis CCTV pipeline. It is a **cascade** whose only
+job is to decide, cheaply, whether a frame is worth sending to Gemini:
 
 ```
-ml/
-├── weights/           # YOLO weights (.pt) — gitignored
-│   ├── fire_smoke.pt
-│   └── litter_cig.pt
-├── server.py          # LitServe inference server
-├── verify_gpu.py      # CUDA visibility check
-├── test_client.py     # sends a JPEG to the running server
-└── requirements.txt
+frame → person? ──no──> stop (no Gemini)
+          │yes
+          ▼
+     smoke OR litter? ──no──> stop (no Gemini)
+          │yes
+          ▼
+     should_analyze = true  → Client calls Gemini (the accurate judge)
 ```
 
-## Run in the Lightning AI T4 Studio
+| Stage | Model | Threshold | Notes |
+|-------|-------|-----------|-------|
+| person | `yolov8n.pt` (COCO class 0) | 0.75 | stock, auto-downloaded |
+| smoke | `kittendev/YOLOv8m-smoke-detection` (`best.pt`) | 0.25 | pulled from HF at startup |
+| litter | `turhancan97/yolov8-segment-trash-detection` (`yolov8m-seg.pt`) | 0.25 | pulled from HF at startup |
+
+The smoke/litter thresholds are intentionally **low (high recall)**: this is a
+gate, not the final decision. Borderline cases should reach Gemini rather than
+be dropped here.
+
+## Run / deploy on Lightning AI
 
 ```bash
-cd ml
-
-# 1. Install deps (torch/CUDA is preinstalled in the Studio image)
 pip install -r requirements.txt
-
-# 2. Confirm the T4 is visible to PyTorch/Ultralytics
-python verify_gpu.py
-
-# 3. Put the weights in place
-#    weights/fire_smoke.pt  and  weights/litter_cig.pt
-
-# 4. Start the server (http://0.0.0.0:8000/predict)
-python server.py
+python server.py                 # local: http://0.0.0.0:8000/predict
+# or deploy to Lightning cloud (gives a public URL):
+lightning api deploy server.py --name person-detector --non-interactive --cloud
 ```
 
-## Test
-
-```bash
-python test_client.py sample.jpg
-```
+Set the resulting URL as `YOLO_API_URL` in the server (`back-end`) env so the
+pipeline talks to the deployed model instead of `localhost:8000/predict`.
 
 ## Request / response
 
-**Request:** `POST /predict` with raw JPEG bytes as the body, or JSON
-`{"image": "<base64-jpeg>"}`.
+**Request:** `POST /predict` with JSON `{"image": "<base64-jpeg>"}` (a data-URL
+header is stripped automatically).
 
 **Response:**
 
 ```json
 {
-  "detections": [
-    {
-      "model": "fire_smoke",
-      "group": "safety",
-      "class_name": "smoke",
-      "class_id": 1,
-      "confidence": 0.87,
-      "bbox": { "x1": 12.0, "y1": 40.5, "x2": 220.1, "y2": 300.7 }
-    }
-  ],
-  "count": 1,
-  "groups": { "safety": 1, "behavior": 0 }
+  "has_person": true,
+  "has_smoke": false,
+  "has_litter": true,
+  "should_analyze": true
 }
+```
+
+`should_analyze` = `has_person AND (has_smoke OR has_litter)` — the single flag
+the Client uses to decide whether to call Gemini.
+
+## Test
+
+```bash
+python test_client.py sample.jpg
 ```

@@ -239,6 +239,9 @@ async function runTask({ subscription }: ScanTask) {
       yoloGatePausedUntil = 0;
 
       const hasPerson = yolo.has_person === true;
+      // Fallback to has_person if an older models build doesn't send should_analyze.
+      const shouldAnalyze =
+        typeof yolo.should_analyze === "boolean" ? yolo.should_analyze : hasPerson;
       if (hasPerson) {
         lastPersonSeenAt.set(cameraId, now);
       } else {
@@ -262,6 +265,19 @@ async function runTask({ subscription }: ScanTask) {
       }
 
       recordSceneFrame(cameraId, base64Image, true);
+
+      // Person present but no smoke/litter candidate from the models — skip Gemini.
+      // This is where the extra Gemini savings come from.
+      if (!shouldAnalyze) {
+        const lastLog = lastNoPersonLogAt.get(cameraId) ?? 0;
+        if (now - lastLog >= NO_PERSON_LOG_COOLDOWN_MS) {
+          lastNoPersonLogAt.set(cameraId, now);
+          console.log(`[yolo:${cameraId}] person but no smoke/litter — skipping Gemini`);
+        }
+        patchCameraScanState(cameraId, { lastViolation: null });
+        return;
+      }
+
       const geminiFrames = buildGeminiFrameSet(cameraId, base64Image);
       const temporalOk = hasTemporalContext(cameraId, base64Image);
 

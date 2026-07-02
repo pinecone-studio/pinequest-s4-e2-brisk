@@ -11,6 +11,10 @@ export function geminiVisionEndpoint(cameraId: string): string {
 export type YoloPersonGateResult = {
   cameraId?: string;
   has_person?: boolean;
+  has_smoke?: boolean;
+  has_litter?: boolean;
+  /** person AND (smoke OR litter) — the gate for calling Gemini. */
+  should_analyze?: boolean;
   image?: string | null;
   error?: string;
 };
