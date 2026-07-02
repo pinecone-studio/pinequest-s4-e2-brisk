@@ -6,10 +6,11 @@ the Client `POST /api/analyze` route for Gemini analysis.
 ## What it does
 
 - Runs YOLOv8 person detection (`class 0`)
+- Runs smoke/litter gate models for fast pre-filtering
 - Crops detected people above threshold
 - Encodes crops as base64 JPEG frames
 - Optionally forwards frames to Client `/api/analyze` using bearer auth
-- Still returns a local `has_person` response for compatibility
+- Still returns local gate fields (`has_person`, `has_smoke`, `has_litter`, `should_analyze`) for compatibility
 
 ## Run
 
@@ -32,6 +33,7 @@ Required for forwarding:
 Optional tuning:
 
 - `PERSON_CONF_THRESHOLD` (default `0.75`)
+- `GATE_CONF_THRESHOLD` (default `0.25`)
 - `MAX_PERSON_CROPS` (default `4`)
 - `CROP_JPEG_QUALITY` (default `85`)
 - `CLIENT_FORWARD_TIMEOUT_S` (default `8`)
@@ -76,6 +78,9 @@ If `CLIENT_ANALYZE_URL` is unset, detection still works but forwarding is skippe
 ```json
 {
   "has_person": true,
+  "has_smoke": false,
+  "has_litter": true,
+  "should_analyze": true,
   "cameraId": "cam_010",
   "timestamp": 1751470000000,
   "person_count": 2,
