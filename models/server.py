@@ -39,9 +39,6 @@ class ViolationGate(ls.LitAPI):
         image_bytes = base64.b64decode(data)
         return Image.open(io.BytesIO(image_bytes)).convert("RGB")
 
-    def _run(self, model, image, conf, classes=None):
-        return model(image, conf=conf, classes=classes, verbose=False)[0]
-
     @staticmethod
     def _boxes(result):
         # Normalized [x1, y1, x2, y2] so the client can match boxes across frames
@@ -50,32 +47,36 @@ class ViolationGate(ls.LitAPI):
             return []
         return [[round(float(v), 4) for v in box] for box in result.boxes.xyxyn.tolist()]
 
-    def predict(self, image):
-        # Litter runs EVERY frame (even with no person): the client needs to watch
-        # trash persist after a person leaves, and later see it get removed.
-        litter = self._run(self.litter, image, GATE_CONF)
-        litter_boxes = self._boxes(litter)
+    def predict(self, images):
+        # LitServe batches concurrent requests, so `images` is a LIST of frames.
+        # YOLO runs a whole batch in one GPU call -> big throughput win for many
+        # cameras. Litter + person run on every frame; smoke runs on the batch too
+        # (cheap once batched) and is only reported when a person is present.
+        litter_results = self.litter(images, conf=GATE_CONF, verbose=False)
+        person_results = self.person(
+            images, conf=PERSON_CONF, classes=[PERSON_CLASS_ID], verbose=False
+        )
+        smoke_results = self.smoke(images, conf=GATE_CONF, verbose=False)
 
-        person = self._run(self.person, image, PERSON_CONF, classes=[PERSON_CLASS_ID])
-        person_boxes = self._boxes(person)
-        has_person = len(person_boxes) > 0
-
-        # Smoking requires a person -> only run that model when one is present.
-        has_smoke = False
-        if has_person:
-            smoke = self._run(self.smoke, image, GATE_CONF)
-            has_smoke = len(smoke.boxes) > 0
-
-        return {
-            "has_person": has_person,
-            "person_boxes": person_boxes,
-            "has_smoke": has_smoke,
-            "has_litter": len(litter_boxes) > 0,
-            "litter_boxes": litter_boxes,
-            # Coarse flag, kept for the smoke path and legacy fallback. Litter is
-            # now judged by the client's drop -> leave -> handled state machine.
-            "should_analyze": has_smoke or len(litter_boxes) > 0,
-        }
+        outputs = []
+        for i in range(len(images)):
+            person_boxes = self._boxes(person_results[i])
+            has_person = len(person_boxes) > 0
+            litter_boxes = self._boxes(litter_results[i])
+            has_smoke = has_person and len(smoke_results[i].boxes) > 0
+            outputs.append(
+                {
+                    "has_person": has_person,
+                    "person_boxes": person_boxes,
+                    "has_smoke": has_smoke,
+                    "has_litter": len(litter_boxes) > 0,
+                    "litter_boxes": litter_boxes,
+                    # Coarse flag for the smoke path / legacy fallback. Litter is
+                    # judged by the client's drop -> leave -> handled state machine.
+                    "should_analyze": has_smoke or len(litter_boxes) > 0,
+                }
+            )
+        return outputs
 
     def encode_response(self, output):
         return output
@@ -83,5 +84,12 @@ class ViolationGate(ls.LitAPI):
 
 if __name__ == "__main__":
     print("Initializing ViolationGate (person -> smoke/litter) on port 8000...")
-    server = ls.LitServer(ViolationGate(), accelerator="auto")
+    # Batch concurrent camera requests into one GPU call. Tune for your load:
+    # bigger batch = more throughput, small timeout = low added latency.
+    server = ls.LitServer(
+        ViolationGate(),
+        accelerator="auto",
+        max_batch_size=16,
+        batch_timeout=0.02,
+    )
     server.run(port=8000)
