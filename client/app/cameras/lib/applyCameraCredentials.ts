@@ -100,22 +100,27 @@ export function loadAccountSession(): AccountSession | null {
 }
 
 const STORAGE_KEY = "guardai-global-credentials";
+// Defaults so a fresh device (e.g. the demo screen) streams without anyone
+// typing credentials. Set via client/.env.local (NEXT_PUBLIC_DEFAULT_CAMERA_*).
+const DEFAULT_USERNAME = process.env.NEXT_PUBLIC_DEFAULT_CAMERA_USER ?? "admin";
+const DEFAULT_PASSWORDS = process.env.NEXT_PUBLIC_DEFAULT_CAMERA_PASSWORDS ?? "";
 
 export function loadGlobalCredentials(): GlobalCredentials {
   if (typeof window === "undefined") {
-    return { username: "admin", passwords: "" };
+    return { username: DEFAULT_USERNAME, passwords: DEFAULT_PASSWORDS };
   }
 
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return { username: "admin", passwords: "" };
+    if (!raw) return { username: DEFAULT_USERNAME, passwords: DEFAULT_PASSWORDS };
     const parsed = JSON.parse(raw) as Partial<GlobalCredentials>;
     return {
-      username: parsed.username ?? "admin",
-      passwords: parsed.passwords ?? "",
+      username: parsed.username ?? DEFAULT_USERNAME,
+      // Fall back to defaults if the saved list is empty.
+      passwords: parsed.passwords || DEFAULT_PASSWORDS,
     };
   } catch {
-    return { username: "admin", passwords: "" };
+    return { username: DEFAULT_USERNAME, passwords: DEFAULT_PASSWORDS };
   }
 }
 

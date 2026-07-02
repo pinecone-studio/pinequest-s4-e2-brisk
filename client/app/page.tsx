@@ -346,12 +346,34 @@ export default function HomePage() {
       setDiscoveryStatus(status);
       applyDiscoveryResults(merged);
 
-      if (merged.length === 0 && discoveryResult.status === "rejected") {
-        setCameraLoadError(
-          discoveryResult.reason instanceof Error
-            ? discoveryResult.reason.message
-            : "Failed to load discovered cameras",
-        );
+      if (merged.length === 0) {
+        if (discoveryResult.status === "rejected") {
+          setCameraLoadError(
+            discoveryResult.reason instanceof Error
+              ? discoveryResult.reason.message
+              : "Failed to load discovered cameras",
+          );
+        } else {
+          // Backend is up but nothing discovered yet — auto-start a scan so the
+          // dashboard populates on first open (no manual "Scan Network" click).
+          setDiscoveryStatus("running");
+          try {
+            await startDiscoveryScan();
+            for (let i = 0; i < 8 && !cancelled; i += 1) {
+              await new Promise((resolve) => setTimeout(resolve, 1500));
+              const d = await tryFetchDiscoveryResults();
+              if (d && d.cameras.length > 0) {
+                setDiscoveryStatus(d.status);
+                applyDiscoveryResults(
+                  mergeCameraLists(configuredCamerasRef.current, d.cameras),
+                );
+                break;
+              }
+            }
+          } catch {
+            /* discovery service unavailable — leave the empty state */
+          }
+        }
       }
     })();
 
