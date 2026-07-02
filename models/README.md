@@ -1,72 +1,91 @@
-# ml — CCTV analytics API (LitServe + YOLO)
+# models — Person detector + Client handoff (LitServe + YOLOv8n)
 
-GPU-accelerated inference server for the Aegis CCTV system. Loads two YOLO models
-and returns categorized detections for each incoming JPEG frame:
+This service detects people using `yolov8n.pt` and can auto-forward person crops to
+the Client `POST /api/analyze` route for Gemini analysis.
 
-| Model              | Group      | Detects            |
-|--------------------|------------|--------------------|
-| `weights/fire_smoke.pt` | `safety`   | fire / smoke       |
-| `weights/litter_cig.pt` | `behavior` | litter / cigarettes |
+## What it does
 
-> Model filenames are placeholders — swap in the correct weights under `weights/`.
+- Runs YOLOv8 person detection (`class 0`)
+- Crops detected people above threshold
+- Encodes crops as base64 JPEG frames
+- Optionally forwards frames to Client `/api/analyze` using bearer auth
+- Still returns a local `has_person` response for compatibility
 
-## Layout
-
-```
-ml/
-├── weights/           # YOLO weights (.pt) — gitignored
-│   ├── fire_smoke.pt
-│   └── litter_cig.pt
-├── server.py          # LitServe inference server
-├── verify_gpu.py      # CUDA visibility check
-├── test_client.py     # sends a JPEG to the running server
-└── requirements.txt
-```
-
-## Run in the Lightning AI T4 Studio
+## Run
 
 ```bash
-cd ml
-
-# 1. Install deps (torch/CUDA is preinstalled in the Studio image)
+cd models
 pip install -r requirements.txt
-
-# 2. Confirm the T4 is visible to PyTorch/Ultralytics
 python verify_gpu.py
-
-# 3. Put the weights in place
-#    weights/fire_smoke.pt  and  weights/litter_cig.pt
-
-# 4. Start the server (http://0.0.0.0:8000/predict)
 python server.py
 ```
 
-## Test
+Server runs at `http://0.0.0.0:8000/predict`.
 
-```bash
-python test_client.py sample.jpg
-```
+## Environment
 
-## Request / response
+Required for forwarding:
 
-**Request:** `POST /predict` with raw JPEG bytes as the body, or JSON
-`{"image": "<base64-jpeg>"}`.
+- `CLIENT_ANALYZE_URL` (example: `http://localhost:3000/api/analyze`)
+- `MODELS_CLIENT_SECRET` (must match client secret)
 
-**Response:**
+Optional tuning:
+
+- `PERSON_CONF_THRESHOLD` (default `0.75`)
+- `MAX_PERSON_CROPS` (default `4`)
+- `CROP_JPEG_QUALITY` (default `85`)
+- `CLIENT_FORWARD_TIMEOUT_S` (default `8`)
+- `CLIENT_FORWARD_RETRIES` (default `2`)
+- `CLIENT_FORWARD_RETRY_DELAY_S` (default `0.5`)
+
+If `CLIENT_ANALYZE_URL` is unset, detection still works but forwarding is skipped.
+
+## Request contract (to models)
+
+`POST /predict` JSON:
 
 ```json
 {
-  "detections": [
-    {
-      "model": "fire_smoke",
-      "group": "safety",
-      "class_name": "smoke",
-      "class_id": 1,
-      "confidence": 0.87,
-      "bbox": { "x1": 12.0, "y1": 40.5, "x2": 220.1, "y2": 300.7 }
-    }
-  ],
-  "count": 1,
-  "groups": { "safety": 1, "behavior": 0 }
+  "image": "<base64-jpeg-or-data-url>",
+  "cameraId": "cam_010",
+  "timestamp": 1751470000000
 }
 ```
+
+- `cameraId` and `timestamp` are optional.
+- If omitted: `cameraId = "unknown-camera"`, `timestamp = now`.
+- Raw JPEG bytes are also accepted for local compatibility (`test_client.py` path).
+
+## Forwarded contract (models -> client)
+
+`POST <CLIENT_ANALYZE_URL>` with:
+
+- Header: `Authorization: Bearer <MODELS_CLIENT_SECRET>`
+- JSON body:
+
+```json
+{
+  "cameraId": "cam_010",
+  "timestamp": 1751470000000,
+  "frames": ["<base64 jpeg>", "<base64 jpeg>"]
+}
+```
+
+## Response contract (from models)
+
+```json
+{
+  "has_person": true,
+  "cameraId": "cam_010",
+  "timestamp": 1751470000000,
+  "person_count": 2,
+  "forward": {
+    "attempted": true,
+    "ok": true,
+    "status": 200,
+    "attempt": 1
+  }
+}
+```
+
+When forwarding is disabled or fails, `forward` includes reason/error details.
