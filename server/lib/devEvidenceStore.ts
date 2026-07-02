@@ -10,6 +10,8 @@ type EvidenceRow = {
   r2_key: string;
   summary: string | null;
   created_at: number;
+  status: string;
+  handled_at: number | null;
 };
 
 /** In-memory D1 + R2 for local `npm run dev` (enable with EVIDENCE_DEV_STORAGE=memory). */
@@ -44,8 +46,22 @@ export function createDevEvidenceBindings(): {
               r2_key: bound[5] as string,
               summary: bound[6] as string | null,
               created_at: bound[7] as number,
+              status: (bound[8] as string) ?? "active",
+              handled_at: null,
             });
-            return { success: true };
+            return { success: true, meta: { changes: 1 } };
+          }
+          if (query.includes("UPDATE evidence_events")) {
+            const status = bound[0] as string;
+            const handledAt = (bound[1] as number | null) ?? null;
+            const id = bound[2] as string;
+            const row = rows.find((r) => r.id === id);
+            if (row) {
+              row.status = status;
+              row.handled_at = handledAt;
+              return { success: true, meta: { changes: 1 } };
+            }
+            return { success: true, meta: { changes: 0 } };
           }
           return { success: false, error: "unsupported query in dev D1" };
         },

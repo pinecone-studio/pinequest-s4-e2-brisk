@@ -2,3 +2,4 @@ litserve
 ultralytics
 pillow
 requests
+huggingface_hub

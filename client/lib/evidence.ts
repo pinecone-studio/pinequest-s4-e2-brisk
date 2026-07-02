@@ -9,4 +9,6 @@ export interface EvidenceEvent {
   saveError?: string;
   note?: string; // the VLM's free-text reasoning — "what the AI thought" for this frame
   info?: boolean; // true = AI observation only (no violation, not saved to disk)
+  status?: "active" | "handled"; // lifecycle: active until the trash/violation is cleared
+  handledAt?: number | null; // when it was marked handled
 }

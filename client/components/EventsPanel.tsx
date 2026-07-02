@@ -63,11 +63,14 @@ export default function EventsPanel({ events, live = false }: Props) {
         ) : (
           events.map((ev) => {
             const pct = Math.round(ev.confidence * 100);
+            const handled = ev.status === "handled";
             const color = ev.info ? "#8a8a8a" : colorFor(ev.label);
             return (
               <div
                 key={ev.id}
-                className="flex gap-3 px-4 py-3 border-b border-[#272727] animate-[evIn_0.25s_ease]"
+                className={`flex gap-3 px-4 py-3 border-b border-[#272727] animate-[evIn_0.25s_ease]${
+                  handled ? " opacity-55" : ""
+                }`}
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
@@ -88,11 +91,18 @@ export default function EventsPanel({ events, live = false }: Props) {
                       ) : null}
                       {ev.label}
                     </span>
-                    {ev.info ? null : (
-                      <span className="text-[13px] font-bold" style={{ color }}>
-                        {pct}%
-                      </span>
-                    )}
+                    <span className="flex items-center gap-2">
+                      {handled ? (
+                        <span className="text-[10px] font-bold uppercase tracking-[0.06em] text-[#22c55e] bg-[rgba(34,197,94,0.12)] px-1.5 py-0.5 rounded">
+                          ✓ Handled
+                        </span>
+                      ) : null}
+                      {ev.info ? null : (
+                        <span className="text-[13px] font-bold" style={{ color }}>
+                          {pct}%
+                        </span>
+                      )}
+                    </span>
                   </div>
                   {ev.note ? (
                     <div

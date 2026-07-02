@@ -2,8 +2,11 @@ import { extractRtspUrlFromStreamReference } from "./rtspUtils";
 
 export const GRID_SNAPSHOT_POLL_MS = 4000;
 export const GRID_SNAPSHOT_JITTER_MS = 1000;
-export const BACKGROUND_SNAPSHOT_POLL_MS = GRID_SNAPSHOT_POLL_MS;
-export const BACKGROUND_SNAPSHOT_JITTER_MS = GRID_SNAPSHOT_JITTER_MS;
+// AI scan cadence is decoupled from the visible grid so we can drive the
+// Lightning gate faster. ~500ms + jitter ≈ up to ~2 scans/sec per camera.
+// If the browser struggles with 30 cameras, bump this back toward 1000.
+export const BACKGROUND_SNAPSHOT_POLL_MS = 500;
+export const BACKGROUND_SNAPSHOT_JITTER_MS = 250;
 
 const MAX_CONCURRENT_SNAPSHOT_FETCHES = 2;
 const SNAPSHOT_TIMEOUT_MS = 10000;
