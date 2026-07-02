@@ -591,7 +591,7 @@ export default function HomePage() {
                 </div>
               ) : (
                 <>
-                  <BackgroundScanner cameras={cameras} aiReady={aiReady} onEvent={handleEvent} />
+                  <BackgroundScanner cameras={streamedCameras} aiReady={aiReady} onEvent={handleEvent} />
                   <CameraGrid
                   cameras={filteredCameras}
                   columns={columns}
