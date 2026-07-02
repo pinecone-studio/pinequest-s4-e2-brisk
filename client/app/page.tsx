@@ -86,7 +86,16 @@ export default function HomePage() {
     !scanOverlayDismissed;
 
   const handleEvent = useCallback((event: EvidenceEvent) => {
-    setEvents((prev) => [event, ...prev].slice(0, MAX_EVENTS));
+    setEvents((prev) => {
+      // Same id = an update (e.g. active -> handled): replace in place.
+      const idx = prev.findIndex((e) => e.id === event.id);
+      if (idx >= 0) {
+        const next = prev.slice();
+        next[idx] = { ...next[idx], ...event };
+        return next;
+      }
+      return [event, ...prev].slice(0, MAX_EVENTS);
+    });
   }, []);
 
   useEffect(() => {

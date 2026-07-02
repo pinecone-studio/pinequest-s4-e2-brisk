@@ -1,5 +1,7 @@
 import type { D1Database } from "./d1Types";
 
+export type EvidenceStatus = "active" | "handled";
+
 /** Persisted evidence row (camelCase API shape). */
 export interface EvidenceEventRecord {
   id: string;
@@ -10,6 +12,8 @@ export interface EvidenceEventRecord {
   r2Key: string;
   summary: string | null;
   createdAt: number;
+  status: EvidenceStatus;
+  handledAt: number | null;
 }
 
 export interface InsertEvidenceEventInput {
@@ -21,6 +25,7 @@ export interface InsertEvidenceEventInput {
   r2Key: string;
   summary?: string | null;
   createdAt?: number;
+  status?: EvidenceStatus;
 }
 
 export interface ListEvidenceEventsOptions {
@@ -38,6 +43,8 @@ interface EvidenceEventRow {
   r2_key: string;
   summary: string | null;
   created_at: number;
+  status: string;
+  handled_at: number | null;
 }
 
 const DEFAULT_LIST_LIMIT = 50;
@@ -53,6 +60,8 @@ function rowToRecord(row: EvidenceEventRow): EvidenceEventRecord {
     r2Key: row.r2_key,
     summary: row.summary,
     createdAt: row.created_at,
+    status: row.status === "handled" ? "handled" : "active",
+    handledAt: row.handled_at,
   };
 }
 
@@ -62,12 +71,13 @@ export async function insertEvidenceEvent(
 ): Promise<EvidenceEventRecord> {
   const createdAt = input.createdAt ?? Date.now();
   const summary = input.summary ?? null;
+  const status: EvidenceStatus = input.status ?? "active";
 
   const result = await db
     .prepare(
       `INSERT INTO evidence_events (
-        id, camera_id, label, confidence, occurred_at, r2_key, summary, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        id, camera_id, label, confidence, occurred_at, r2_key, summary, created_at, status, handled_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
     )
     .bind(
       input.id,
@@ -78,6 +88,7 @@ export async function insertEvidenceEvent(
       input.r2Key,
       summary,
       createdAt,
+      status,
     )
     .run();
 
@@ -94,7 +105,27 @@ export async function insertEvidenceEvent(
     r2Key: input.r2Key,
     summary,
     createdAt,
+    status,
+    handledAt: null,
   };
+}
+
+/** Flip an event's lifecycle status (e.g. active -> handled when trash removed). */
+export async function updateEvidenceStatus(
+  db: D1Database,
+  id: string,
+  status: EvidenceStatus,
+  handledAt: number | null = status === "handled" ? Date.now() : null,
+): Promise<boolean> {
+  const result = await db
+    .prepare(`UPDATE evidence_events SET status = ?, handled_at = ? WHERE id = ?`)
+    .bind(status, handledAt, id)
+    .run();
+
+  if (!result.success) {
+    throw new Error(result.error ?? "Failed to update evidence status");
+  }
+  return Number(result.meta?.changes ?? 0) > 0;
 }
 
 /** Most recent first; optional camera filter and pagination. */
@@ -108,7 +139,7 @@ export async function listEvidenceEvents(
   );
   const offset = Math.max(0, options.offset ?? 0);
 
-  let query = `SELECT id, camera_id, label, confidence, occurred_at, r2_key, summary, created_at
+  let query = `SELECT id, camera_id, label, confidence, occurred_at, r2_key, summary, created_at, status, handled_at
     FROM evidence_events`;
   const binds: unknown[] = [];
 

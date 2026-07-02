@@ -42,39 +42,39 @@ class ViolationGate(ls.LitAPI):
     def _run(self, model, image, conf, classes=None):
         return model(image, conf=conf, classes=classes, verbose=False)[0]
 
+    @staticmethod
+    def _boxes(result):
+        # Normalized [x1, y1, x2, y2] so the client can match boxes across frames
+        # regardless of resolution.
+        if len(result.boxes) == 0:
+            return []
+        return [[round(float(v), 4) for v in box] for box in result.boxes.xyxyn.tolist()]
+
     def predict(self, image):
-        # Stage 1: no person -> nothing else runs, definitely no Gemini.
-        person = self._run(self.person, image, PERSON_CONF, classes=[PERSON_CLASS_ID])
-        if len(person.boxes) == 0:
-            return {
-                "has_person": False,
-                "has_smoke": False,
-                "has_litter": False,
-                "litter_boxes": [],
-                "should_analyze": False,
-            }
-
-        # Stage 2: person present -> run the cheap gates.
-        smoke = self._run(self.smoke, image, GATE_CONF)
+        # Litter runs EVERY frame (even with no person): the client needs to watch
+        # trash persist after a person leaves, and later see it get removed.
         litter = self._run(self.litter, image, GATE_CONF)
+        litter_boxes = self._boxes(litter)
 
-        has_smoke = len(smoke.boxes) > 0
-        # Normalized [x1, y1, x2, y2] boxes so the client can dedup litter by
-        # LOCATION — the same trash fires every frame otherwise.
-        litter_boxes = (
-            [[round(float(v), 4) for v in box] for box in litter.boxes.xyxyn.tolist()]
-            if len(litter.boxes) > 0
-            else []
-        )
-        has_litter = len(litter_boxes) > 0
+        person = self._run(self.person, image, PERSON_CONF, classes=[PERSON_CLASS_ID])
+        person_boxes = self._boxes(person)
+        has_person = len(person_boxes) > 0
+
+        # Smoking requires a person -> only run that model when one is present.
+        has_smoke = False
+        if has_person:
+            smoke = self._run(self.smoke, image, GATE_CONF)
+            has_smoke = len(smoke.boxes) > 0
 
         return {
-            "has_person": True,
+            "has_person": has_person,
+            "person_boxes": person_boxes,
             "has_smoke": has_smoke,
-            "has_litter": has_litter,
+            "has_litter": len(litter_boxes) > 0,
             "litter_boxes": litter_boxes,
-            # Gemini is only called when a person AND a smoke/litter candidate are present.
-            "should_analyze": has_smoke or has_litter,
+            # Coarse flag, kept for the smoke path and legacy fallback. Litter is
+            # now judged by the client's drop -> leave -> handled state machine.
+            "should_analyze": has_smoke or len(litter_boxes) > 0,
         }
 
     def encode_response(self, output):

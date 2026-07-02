@@ -29,5 +29,7 @@ export function mapToEvidenceEvent(input: {
     savedPath: input.response?.r2Key ?? null,
     saveError: input.saveError,
     note: input.note,
+    status: "active",
+    handledAt: null,
   };
 }

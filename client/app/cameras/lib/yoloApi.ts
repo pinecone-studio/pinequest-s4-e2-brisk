@@ -11,9 +11,11 @@ export function geminiVisionEndpoint(cameraId: string): string {
 export type YoloPersonGateResult = {
   cameraId?: string;
   has_person?: boolean;
+  /** Normalized [x1,y1,x2,y2] person boxes — used to tell if a person is on the trash. */
+  person_boxes?: number[][];
   has_smoke?: boolean;
   has_litter?: boolean;
-  /** Normalized [x1,y1,x2,y2] litter boxes — used to dedup persistent trash. */
+  /** Normalized [x1,y1,x2,y2] litter boxes — tracked across frames. */
   litter_boxes?: number[][];
   /** person AND (smoke OR litter) — the gate for calling Gemini. */
   should_analyze?: boolean;
@@ -28,6 +30,23 @@ export type GeminiAnalyzeApiResult = {
   model?: string;
   error?: string;
 };
+
+/** Mark an evidence event handled/active (browser → client proxy → server). */
+export async function patchEvidenceStatus(
+  id: string,
+  status: "active" | "handled",
+): Promise<boolean> {
+  try {
+    const res = await fetch(`/api/evidence/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
 
 /** YOLO person gate via server → models LitServe. No Gemini call. */
 export async function postYoloPersonGate(

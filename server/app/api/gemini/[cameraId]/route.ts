@@ -60,6 +60,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     const hasSmoke = yolo.has_smoke === true;
     const hasLitter = yolo.has_litter === true;
     const litterBoxes = Array.isArray(yolo.litter_boxes) ? yolo.litter_boxes : [];
+    const personBoxes = Array.isArray(yolo.person_boxes) ? yolo.person_boxes : [];
     // Fallback: if an older models build without smoke/litter is deployed, gate
     // Gemini on has_person alone (previous behaviour) so the pipeline still runs.
     const shouldAnalyze =
@@ -74,6 +75,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     return NextResponse.json({
       cameraId,
       has_person: hasPerson,
+      person_boxes: personBoxes,
       has_smoke: hasSmoke,
       has_litter: hasLitter,
       litter_boxes: litterBoxes,
