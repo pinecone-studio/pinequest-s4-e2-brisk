@@ -81,37 +81,6 @@ export function buildCameraCredentialsFromAccountConfigs(
   return result;
 }
 
-/** Renders an account's saved camera setup directly, so it appears with no extra clicks after Skip Login. */
-export function buildCameraViewsFromAccountConfigs(configs: AccountCameraConfig[]): CameraView[] {
-  return configs.map((config) => {
-    const rtspUrl = config.connectionMode === "remote" ? config.remoteRtspUrl : config.rtspUrl;
-    let host: string | undefined;
-    let rtspPort: number | undefined;
-    let rtspPath: string | undefined;
-    if (rtspUrl) {
-      try {
-        const parsed = new URL(rtspUrl);
-        host = parsed.hostname;
-        rtspPort = parsed.port ? Number.parseInt(parsed.port, 10) : 554;
-        rtspPath = parsed.pathname || "/";
-      } catch {
-        // leave host/port/path undefined if the stored URL can't be parsed
-      }
-    }
-
-    return {
-      id: config.cameraId,
-      name: config.name ?? config.cameraId,
-      host,
-      rtsp_port: rtspPort,
-      rtsp_path: rtspPath,
-      floor: 0,
-      zone: "My Cameras",
-      online: false,
-    };
-  });
-}
-
 const ACCOUNT_SESSION_STORAGE_KEY = "guardai-account-session";
 
 export function saveAccountSession(session: AccountSession) {

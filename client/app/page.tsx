@@ -19,7 +19,6 @@ import {
 import {
   applyCredentialsToCamera,
   buildCameraCredentialsFromAccountConfigs,
-  buildCameraViewsFromAccountConfigs,
   getPasswordListForCamera,
   loadAccountSession,
   loadGlobalCredentials,
@@ -342,14 +341,8 @@ export default function HomePage() {
       const discovered = discovery?.cameras ?? [];
       const status = discovery?.status ?? "completed";
 
-      const accountSession = loadAccountSession();
-      const accountCameras = accountSession
-        ? buildCameraViewsFromAccountConfigs(accountSession.cameraConfigs)
-        : [];
-
-      const withAccountCameras = mergeCameraLists(accountCameras, configured);
-      const merged = mergeCameraLists(withAccountCameras, discovered);
-      configuredCamerasRef.current = withAccountCameras;
+      const merged = mergeCameraLists(configured, discovered);
+      configuredCamerasRef.current = configured;
       setDiscoveryStatus(status);
       applyDiscoveryResults(merged);
 
