@@ -31,7 +31,9 @@ import {
 } from "./snapshotScheduler";
 import { patchEvidenceStatus, postGeminiAnalyzeFrames, postYoloPersonGate } from "./yoloApi";
 
-const MAX_CONCURRENT_SCANS = 2;
+// Tuned for ~30 cameras: allow more scans in flight so cameras don't fall
+// behind the ~500ms poll cadence. Raise cautiously — higher = more browser load.
+const MAX_CONCURRENT_SCANS = 8;
 const SCAN_TIMEOUT_MS = 12_000;
 const UNAVAILABLE_AFTER_FAILURES = 6;
 
