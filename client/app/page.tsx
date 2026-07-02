@@ -18,7 +18,10 @@ import {
 } from "./cameras/lib/cameraApi";
 import {
   applyCredentialsToCamera,
+  buildCameraCredentialsFromAccountConfigs,
+  buildCameraViewsFromAccountConfigs,
   getPasswordListForCamera,
+  loadAccountSession,
   loadGlobalCredentials,
   saveGlobalCredentials,
 } from "./cameras/lib/applyCameraCredentials";
@@ -72,6 +75,7 @@ export default function HomePage() {
   const [isStartingScan, setIsStartingScan] = useState(false);
   const [scanOverlayDismissed, setScanOverlayDismissed] = useState(false);
   const [aiReady, setAiReady] = useState(false);
+  const [continuedAsAccount, setContinuedAsAccount] = useState<string | null>(null);
   const credentialsModalOpen = credentialsModalCameraId !== null;
   const credentialsModalOpenRef = useRef(false);
   credentialsModalOpenRef.current = credentialsModalOpen;
@@ -100,6 +104,21 @@ export default function HomePage() {
 
   useEffect(() => {
     setGlobalCredentials(loadGlobalCredentials());
+
+    const accountSession = loadAccountSession();
+    if (accountSession) {
+      setCameraCredentials((current) => ({
+        ...buildCameraCredentialsFromAccountConfigs(accountSession.cameraConfigs),
+        ...current,
+      }));
+    }
+
+    const continuedAs = window.sessionStorage.getItem("guardai-continued-as");
+    if (continuedAs) {
+      window.sessionStorage.removeItem("guardai-continued-as");
+      setContinuedAsAccount(continuedAs);
+      window.setTimeout(() => setContinuedAsAccount(null), 6000);
+    }
   }, []);
 
   const globalPasswordsRef = useRef(globalCredentials.passwords);
@@ -323,8 +342,14 @@ export default function HomePage() {
       const discovered = discovery?.cameras ?? [];
       const status = discovery?.status ?? "completed";
 
-      const merged = mergeCameraLists(configured, discovered);
-      configuredCamerasRef.current = configured;
+      const accountSession = loadAccountSession();
+      const accountCameras = accountSession
+        ? buildCameraViewsFromAccountConfigs(accountSession.cameraConfigs)
+        : [];
+
+      const withAccountCameras = mergeCameraLists(accountCameras, configured);
+      const merged = mergeCameraLists(withAccountCameras, discovered);
+      configuredCamerasRef.current = withAccountCameras;
       setDiscoveryStatus(status);
       applyDiscoveryResults(merged);
 
@@ -438,6 +463,14 @@ export default function HomePage() {
     <div className="flex h-screen p-4 bg-[#0a0a0a]">
       <div className="flex flex-1 min-w-0 overflow-hidden bg-[#141414] border border-[#1e1e1e] rounded-[18px]">
         <div className="flex flex-1 min-w-0 relative overflow-hidden">
+          {continuedAsAccount ? (
+            <div
+              role="status"
+              className="absolute top-4 left-1/2 z-50 -translate-x-1/2 rounded-full border border-[#f0652c] bg-[#1a1a1a] px-4 py-2 text-[12.5px] font-medium text-[#e8e8e8] shadow-[0_8px_24px_rgba(0,0,0,0.4)]"
+            >
+              Continued as {continuedAsAccount}
+            </div>
+          ) : null}
           {showScanOverlay ? (
             <div
               className="absolute inset-0 z-40 flex flex-col items-center justify-center gap-4 p-6 text-center bg-[rgba(8,8,8,0.82)] backdrop-blur-[6px]"

@@ -48,6 +48,88 @@ export function getPasswordListForCamera(
   return resolvePasswordList(cameraCredentials[cameraId], globalCredentials.passwords);
 }
 
+/** Per-account camera setup, as returned by GET /api/session/last-used (Skip Login). */
+export interface AccountCameraConfig {
+  id: string;
+  cameraId: string;
+  name: string | null;
+  rtspUrl: string | null;
+  remoteRtspUrl: string | null;
+  connectionMode: "local" | "remote";
+  username: string | null;
+  password: string | null;
+}
+
+export interface AccountSession {
+  accountId: string;
+  accountName: string;
+  cameraConfigs: AccountCameraConfig[];
+}
+
+/** Per-camera credentials keyed by camera id, mirroring the shape used for manual per-camera overrides. */
+export function buildCameraCredentialsFromAccountConfigs(
+  configs: AccountCameraConfig[],
+): Record<string, CameraCredentials> {
+  const result: Record<string, CameraCredentials> = {};
+  for (const config of configs) {
+    if (!config.username && !config.password) continue;
+    result[config.cameraId] = {
+      username: config.username ?? "admin",
+      password: config.password ?? "",
+    };
+  }
+  return result;
+}
+
+/** Renders an account's saved camera setup directly, so it appears with no extra clicks after Skip Login. */
+export function buildCameraViewsFromAccountConfigs(configs: AccountCameraConfig[]): CameraView[] {
+  return configs.map((config) => {
+    const rtspUrl = config.connectionMode === "remote" ? config.remoteRtspUrl : config.rtspUrl;
+    let host: string | undefined;
+    let rtspPort: number | undefined;
+    let rtspPath: string | undefined;
+    if (rtspUrl) {
+      try {
+        const parsed = new URL(rtspUrl);
+        host = parsed.hostname;
+        rtspPort = parsed.port ? Number.parseInt(parsed.port, 10) : 554;
+        rtspPath = parsed.pathname || "/";
+      } catch {
+        // leave host/port/path undefined if the stored URL can't be parsed
+      }
+    }
+
+    return {
+      id: config.cameraId,
+      name: config.name ?? config.cameraId,
+      host,
+      rtsp_port: rtspPort,
+      rtsp_path: rtspPath,
+      floor: 0,
+      zone: "My Cameras",
+      online: false,
+    };
+  });
+}
+
+const ACCOUNT_SESSION_STORAGE_KEY = "guardai-account-session";
+
+export function saveAccountSession(session: AccountSession) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(ACCOUNT_SESSION_STORAGE_KEY, JSON.stringify(session));
+}
+
+export function loadAccountSession(): AccountSession | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(ACCOUNT_SESSION_STORAGE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as AccountSession;
+  } catch {
+    return null;
+  }
+}
+
 const STORAGE_KEY = "guardai-global-credentials";
 
 export function loadGlobalCredentials(): GlobalCredentials {
