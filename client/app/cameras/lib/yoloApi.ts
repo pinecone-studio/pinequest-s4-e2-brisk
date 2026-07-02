@@ -13,6 +13,8 @@ export type YoloPersonGateResult = {
   has_person?: boolean;
   has_smoke?: boolean;
   has_litter?: boolean;
+  /** Normalized [x1,y1,x2,y2] litter boxes — used to dedup persistent trash. */
+  litter_boxes?: number[][];
   /** person AND (smoke OR litter) — the gate for calling Gemini. */
   should_analyze?: boolean;
   image?: string | null;

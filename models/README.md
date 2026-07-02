@@ -47,12 +47,18 @@ header is stripped automatically).
   "has_person": true,
   "has_smoke": false,
   "has_litter": true,
+  "litter_boxes": [[0.41, 0.62, 0.55, 0.78]],
   "should_analyze": true
 }
 ```
 
-`should_analyze` = `has_person AND (has_smoke OR has_litter)` — the single flag
-the Client uses to decide whether to call Gemini.
+`should_analyze` = `has_person AND (has_smoke OR has_litter)` — the coarse flag.
+
+`litter_boxes` are normalized `[x1, y1, x2, y2]` boxes. Litter is persistent
+(the same trash fires every frame), so the Client registers each box by
+location and only escalates **new, unregistered** litter to Gemini; once trash
+is removed from the scene its registration is dropped. This is what stops Gemini
+from being re-called for trash that's already recorded.
 
 ## Test
 

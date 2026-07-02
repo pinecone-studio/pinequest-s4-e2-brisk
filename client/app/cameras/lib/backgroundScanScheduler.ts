@@ -60,6 +60,26 @@ const NO_PERSON_LOG_COOLDOWN_MS = 30_000;
 const motionSamples = new Map<string, MotionSample>();
 const lastPersonSeenAt = new Map<string, number>();
 
+// Litter is persistent: the same trash fires every frame. We register each
+// litter box (normalized [x1,y1,x2,y2]) per camera and only escalate NEW,
+// unregistered litter to Gemini. Registrations for litter that has since
+// disappeared are dropped so a fresh drop in the same spot can register again.
+type BBox = [number, number, number, number];
+const LITTER_IOU = 0.4;
+const MAX_REGISTERED_LITTER = 32;
+const registeredLitter = new Map<string, BBox[]>();
+
+function iou(a: BBox, b: BBox): number {
+  const ix = Math.max(0, Math.min(a[2], b[2]) - Math.max(a[0], b[0]));
+  const iy = Math.max(0, Math.min(a[3], b[3]) - Math.max(a[1], b[1]));
+  const inter = ix * iy;
+  if (inter <= 0) return 0;
+  const areaA = Math.max(0, a[2] - a[0]) * Math.max(0, a[3] - a[1]);
+  const areaB = Math.max(0, b[2] - b[0]) * Math.max(0, b[3] - b[1]);
+  const union = areaA + areaB - inter;
+  return union > 0 ? inter / union : 0;
+}
+
 interface ScanSubscription {
   active: boolean;
   camera: CameraView;
@@ -239,9 +259,7 @@ async function runTask({ subscription }: ScanTask) {
       yoloGatePausedUntil = 0;
 
       const hasPerson = yolo.has_person === true;
-      // Fallback to has_person if an older models build doesn't send should_analyze.
-      const shouldAnalyze =
-        typeof yolo.should_analyze === "boolean" ? yolo.should_analyze : hasPerson;
+      const hasSmoke = yolo.has_smoke === true;
       if (hasPerson) {
         lastPersonSeenAt.set(cameraId, now);
       } else {
@@ -266,16 +284,53 @@ async function runTask({ subscription }: ScanTask) {
 
       recordSceneFrame(cameraId, base64Image, true);
 
-      // Person present but no smoke/litter candidate from the models — skip Gemini.
-      // This is where the extra Gemini savings come from.
+      // Litter location dedup — only meaningful now that a person is present
+      // (the models don't look for litter without one). Registrations are NOT
+      // cleared when nobody is in frame, so persistent trash stays registered.
+      const litterBoxes: BBox[] = Array.isArray(yolo.litter_boxes)
+        ? (yolo.litter_boxes as BBox[])
+        : [];
+      const registered = registeredLitter.get(cameraId) ?? [];
+      const stillPresent = registered.filter((r) =>
+        litterBoxes.some((b) => iou(b, r) >= LITTER_IOU),
+      );
+      const newLitterBoxes = litterBoxes.filter(
+        (b) => !stillPresent.some((r) => iou(b, r) >= LITTER_IOU),
+      );
+      const hasNewLitter = newLitterBoxes.length > 0;
+      // Drop registrations for litter that has been cleared from the scene.
+      registeredLitter.set(cameraId, stillPresent);
+
+      // Fallback: older models build without granular fields -> gate on should_analyze.
+      const legacyGate =
+        yolo.has_smoke === undefined && yolo.litter_boxes === undefined;
+      const shouldAnalyze = legacyGate
+        ? typeof yolo.should_analyze === "boolean"
+          ? yolo.should_analyze
+          : true
+        : hasSmoke || hasNewLitter;
+
+      // Person present, but no smoke and no UNREGISTERED litter — skip Gemini.
+      // (Already-registered trash is left alone; that's the whole point.)
       if (!shouldAnalyze) {
         const lastLog = lastNoPersonLogAt.get(cameraId) ?? 0;
         if (now - lastLog >= NO_PERSON_LOG_COOLDOWN_MS) {
           lastNoPersonLogAt.set(cameraId, now);
-          console.log(`[yolo:${cameraId}] person but no smoke/litter — skipping Gemini`);
+          console.log(
+            `[yolo:${cameraId}] person but no smoke / no new litter — skipping Gemini`,
+          );
         }
         patchCameraScanState(cameraId, { lastViolation: null });
         return;
+      }
+
+      // We're escalating this new litter to Gemini — register the boxes now so
+      // the same trash isn't sent again until it's removed from the scene.
+      if (hasNewLitter) {
+        registeredLitter.set(
+          cameraId,
+          [...stillPresent, ...newLitterBoxes].slice(-MAX_REGISTERED_LITTER),
+        );
       }
 
       const geminiFrames = buildGeminiFrameSet(cameraId, base64Image);

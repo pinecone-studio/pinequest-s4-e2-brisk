@@ -39,29 +39,40 @@ class ViolationGate(ls.LitAPI):
         image_bytes = base64.b64decode(data)
         return Image.open(io.BytesIO(image_bytes)).convert("RGB")
 
-    def _detects(self, model, image, conf, classes=None):
-        result = model(image, conf=conf, classes=classes, verbose=False)[0]
-        return len(result.boxes) > 0
+    def _run(self, model, image, conf, classes=None):
+        return model(image, conf=conf, classes=classes, verbose=False)[0]
 
     def predict(self, image):
         # Stage 1: no person -> nothing else runs, definitely no Gemini.
-        has_person = self._detects(image=image, model=self.person, conf=PERSON_CONF, classes=[PERSON_CLASS_ID])
-        if not has_person:
+        person = self._run(self.person, image, PERSON_CONF, classes=[PERSON_CLASS_ID])
+        if len(person.boxes) == 0:
             return {
                 "has_person": False,
                 "has_smoke": False,
                 "has_litter": False,
+                "litter_boxes": [],
                 "should_analyze": False,
             }
 
         # Stage 2: person present -> run the cheap gates.
-        has_smoke = self._detects(image=image, model=self.smoke, conf=GATE_CONF)
-        has_litter = self._detects(image=image, model=self.litter, conf=GATE_CONF)
+        smoke = self._run(self.smoke, image, GATE_CONF)
+        litter = self._run(self.litter, image, GATE_CONF)
+
+        has_smoke = len(smoke.boxes) > 0
+        # Normalized [x1, y1, x2, y2] boxes so the client can dedup litter by
+        # LOCATION — the same trash fires every frame otherwise.
+        litter_boxes = (
+            [[round(float(v), 4) for v in box] for box in litter.boxes.xyxyn.tolist()]
+            if len(litter.boxes) > 0
+            else []
+        )
+        has_litter = len(litter_boxes) > 0
 
         return {
             "has_person": True,
             "has_smoke": has_smoke,
             "has_litter": has_litter,
+            "litter_boxes": litter_boxes,
             # Gemini is only called when a person AND a smoke/litter candidate are present.
             "should_analyze": has_smoke or has_litter,
         }
