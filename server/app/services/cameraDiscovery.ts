@@ -53,7 +53,10 @@ export function detectLocalSubnets(): string[] {
   const interfaces = os.networkInterfaces();
   for (const entries of Object.values(interfaces)) {
     for (const entry of entries ?? []) {
+      // Skip loopback and link-local/APIPA (169.254.x) adapters — only real
+      // private LANs (RFC1918) can host reachable cameras.
       if (entry.family !== "IPv4" || entry.internal) continue;
+      if (!isPrivateIpv4(entry.address)) continue;
       const subnet = subnetFromIp(entry.address);
       if (subnet) subnets.add(subnet);
     }
@@ -114,12 +117,14 @@ async function probeHosts(hosts: string[]): Promise<string[]> {
 
 function cameraFromHost(host: string, index: number): DiscoveredCamera {
   const id = `discovered_${host.replace(/\./g, "_")}`;
+  // Hikvision main-stream path (confirmed working on these cameras). The client
+  // still layers on admin + password from the credentials panel.
   return {
     id,
     name: `Camera ${host}`,
     host,
     port: RTSP_PORT,
-    rtspUrl: `rtsp://${host}:${RTSP_PORT}/`,
+    rtspUrl: `rtsp://${host}:${RTSP_PORT}/Streaming/Channels/101`,
     source: "port-scan",
   };
 }
