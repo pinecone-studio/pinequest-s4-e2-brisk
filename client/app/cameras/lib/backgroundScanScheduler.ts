@@ -12,6 +12,7 @@ import {
 import {
   captureEvidenceFromDataUrl,
   CIGARETTE_KIND,
+  downscaleFrameForGate,
   LITTER_KIND,
   VAPE_KIND,
 } from "@/lib/cameraAiUtils";
@@ -34,8 +35,14 @@ import { patchEvidenceStatus, postGeminiAnalyzeFrames, postYoloPersonGate } from
 // Tuned for ~30 cameras: allow more scans in flight so cameras don't fall
 // behind the ~500ms poll cadence. Raise cautiously — higher = more browser load.
 const MAX_CONCURRENT_SCANS = 8;
+/** Global cap on how many scans start per second, across ALL cameras, so the
+ *  browser stays smooth no matter how many cameras are hot. */
+const MAX_SCANS_PER_SEC = 10;
+const MIN_SCAN_GAP_MS = 1000 / MAX_SCANS_PER_SEC;
 const SCAN_TIMEOUT_MS = 12_000;
 const UNAVAILABLE_AFTER_FAILURES = 6;
+/** Max width of the frame sent to the Lightning gate (YOLO needs no detail). */
+const GATE_FRAME_WIDTH = 384;
 
 type ViolationKey = "cigarette" | "vape" | "litter";
 
@@ -223,6 +230,7 @@ interface ScanTask {
 const queue: ScanTask[] = [];
 let activeScans = 0;
 let drainScheduled = false;
+let lastScanStartAt = 0;
 
 export function subscribeToBackgroundScan({
   camera,
@@ -282,26 +290,39 @@ function enqueue(task: ScanTask) {
 }
 
 function scheduleDrain() {
+  scheduleDrainIn(0);
+}
+
+function scheduleDrainIn(ms: number) {
   if (drainScheduled) return;
   drainScheduled = true;
-  setTimeout(drainQueue, 0);
+  setTimeout(drainQueue, ms);
 }
 
 function drainQueue() {
   drainScheduled = false;
-  let started = 0;
+  if (queue.length === 0 || activeScans >= MAX_CONCURRENT_SCANS) return;
 
-  while (activeScans < MAX_CONCURRENT_SCANS && queue.length > 0 && started < MAX_CONCURRENT_SCANS) {
-    const task = queue.shift();
-    if (!task || !task.subscription.active) continue;
+  // Global rate cap: at most MAX_SCANS_PER_SEC scan starts per second, across
+  // every camera, so total per-frame work stays bounded and the UI stays smooth.
+  const now = Date.now();
+  const wait = MIN_SCAN_GAP_MS - (now - lastScanStartAt);
+  if (wait > 0) {
+    scheduleDrainIn(wait);
+    return;
+  }
+
+  const task = queue.shift();
+  if (task && task.subscription.active) {
+    lastScanStartAt = now;
     activeScans += 1;
-    started += 1;
     void runTask(task).finally(() => {
       activeScans -= 1;
       scheduleDrain();
     });
   }
 
+  // Try to start the next one — it'll hit the rate gate and reschedule if needed.
   if (queue.length > 0 && activeScans < MAX_CONCURRENT_SCANS) {
     scheduleDrain();
   }
@@ -367,7 +388,11 @@ async function runTask({ subscription }: ScanTask) {
 
       patchCameraScanState(cameraId, { analyzing: true });
 
-      const yolo = await postYoloPersonGate(cameraId, base64Image, controller.signal);
+      // Send a downscaled frame to the gate — YOLO needs no detail and returns
+      // normalized boxes, so this cuts payload/inference without shifting coords.
+      // Full-res base64Image is still used for Gemini + evidence below.
+      const gateImage = await downscaleFrameForGate(base64Image, GATE_FRAME_WIDTH);
+      const yolo = await postYoloPersonGate(cameraId, gateImage, controller.signal);
       if (!subscription.active) return;
 
       if (!yolo) {

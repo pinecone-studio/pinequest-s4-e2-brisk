@@ -170,6 +170,26 @@ export function imageToGeminiDataUrl(
   return canvas.toDataURL("image/jpeg", quality);
 }
 
+/**
+ * Downscale a base64/data-URL JPEG to a smaller JPEG for the Lightning gate.
+ * The gate (person/smoke/litter YOLO) doesn't need full resolution, and it
+ * returns NORMALIZED boxes, so shrinking the frame doesn't shift any coords —
+ * it just cuts payload size, base64 overhead, and inference time. No-op (returns
+ * the original) if decoding fails.
+ */
+export async function downscaleFrameForGate(
+  dataUrl: string,
+  maxWidth = 384,
+  quality = 0.6,
+): Promise<string> {
+  try {
+    const img = await loadImageFromDataUrl(dataUrl);
+    return imageToGeminiDataUrl(img, maxWidth, quality) ?? dataUrl;
+  } catch {
+    return dataUrl;
+  }
+}
+
 /** Capture an ordered burst of downscaled JPEGs for temporal Gemini analysis. */
 export async function captureBurstForGemini(
   img: HTMLImageElement,
